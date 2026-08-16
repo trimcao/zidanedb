@@ -860,3 +860,127 @@ Of course, there will be the usual logistical stuffs: CMake, unit-tests, even au
    `zidane` and `matrix` may know about `Database`. They should not know how records are encoded. `Database` should not know about CLI11, terminal output, Catch2, or command-line exit codes.
 
    That small separation is enough for the beginning. Add more structure only when ZidaneDB itself gives a concrete reason.
+
+## Appendix
+
+### How FetchContent Retrieves Libraries from GitHub
+
+`FetchContent` treats a GitHub repository as source code that becomes part of your CMake build. GitHub itself is not special; it is simply a Git repository URL.
+
+For example:
+
+```cmake
+include(FetchContent)
+
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        <commit-hash>
+)
+
+FetchContent_MakeAvailable(Catch2)
+```
+
+Here is what happens:
+
+1. `FetchContent_Declare()` records a download recipe. It does not download anything yet.
+2. When you configure the project:
+
+   ```sh
+   cmake -S . -B build
+   ```
+
+   `FetchContent_MakeAvailable(Catch2)` causes CMake to clone the repository and check out the requested revision.
+3. By default, the downloaded files are placed under:
+
+   ```text
+   build/_deps/catch2-src/
+   ```
+
+   Its generated build files go somewhere like:
+
+   ```text
+   build/_deps/catch2-build/
+   ```
+
+4. CMake reads Catch2's own `CMakeLists.txt`, approximately as if you had called `add_subdirectory()` on it.
+5. Catch2's CMake targets, such as `Catch2::Catch2WithMain`, become available to your project.
+6. You can then link against one of those targets:
+
+   ```cmake
+   target_link_libraries(db_test
+       PRIVATE
+           zidanedb
+           Catch2::Catch2WithMain
+   )
+   ```
+
+The target carries information such as include directories, compiler requirements, and dependent libraries, so you normally do not manually specify Catch2's header paths.
+
+The important distinction is:
+
+```text
+CMake configure
+    ↓
+clone/download dependency
+    ↓
+read dependency's CMakeLists.txt
+    ↓
+generate the complete build system
+    ↓
+CMake build
+    ↓
+compile your code and required dependency targets
+```
+
+Fetching occurs during the configure step, not normally during `cmake --build`. This allows the dependency's targets to exist while CMake is generating your project. [CMake's FetchContent documentation](https://cmake.org/cmake/help/latest/module/FetchContent.html) describes this as making content available at configure time.
+
+#### What happens on subsequent builds?
+
+CMake ordinarily reuses the dependency already stored in the build directory:
+
+```sh
+cmake --build build
+```
+
+This does not clone Catch2 again.
+
+If you delete `build/`, the downloaded dependency disappears too, and the next configure will download it again. Nothing is installed globally, and nothing is added to your source repository.
+
+That is one reason `build/` belongs in `.gitignore`.
+
+#### What should `GIT_TAG` contain?
+
+Despite its name, `GIT_TAG` can specify:
+
+- A branch, such as `main`.
+- A tag, such as `v3.15.0`.
+- A full commit hash.
+
+For reproducible builds, a full commit hash is the strongest choice:
+
+```cmake
+GIT_TAG 4f3c2a...full-commit-hash...
+```
+
+A branch moves continuously, and even a Git tag can technically be moved. A commit hash identifies one exact source revision. CMake's documentation also recommends commit hashes for remote content because they are more reproducible and secure.
+
+A readable compromise is:
+
+```cmake
+GIT_TAG abcdef0123456789... # v3.15.0
+```
+
+The hash controls the build; the comment tells humans which release it represents.
+
+#### Does it install the library?
+
+No. `FetchContent` generally:
+
+- Downloads the library into your build tree.
+- Adds it as a subproject.
+- Builds required targets alongside your project.
+
+It does not install the library into `/usr/local`, Homebrew, or a global C++ environment.
+
+For ZidaneDB, that means a fresh checkout can obtain Catch2 and CLI11 simply by running CMake, provided Git and network access are available. The dependency sources remain disposable build artifacts. This build-from-source approach is the main difference between `FetchContent` and `find_package()`, which commonly searches for an already-installed dependency. [CMake's dependency guide](https://cmake.org/cmake/help/latest/guide/using-dependencies/index.html) compares the two approaches.
