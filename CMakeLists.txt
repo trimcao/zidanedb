@@ -14,10 +14,7 @@ add_library(zidanedb
 target_include_directories(zidanedb
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
-)
-
-target_include_directories(zidanedb
-    PUBLIC
+    PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
@@ -57,11 +54,11 @@ if(BUILD_TESTING)
 
     FetchContent_MakeAvailable(Catch2)
 
-    add_executable(db_tests
-        tests/db_test.cpp
+    add_executable(database_tests
+        tests/database_test.cpp
     )
 
-    target_link_libraries(db_tests
+    target_link_libraries(database_tests
         PRIVATE
             zidanedb
             Catch2::Catch2WithMain
@@ -69,5 +66,5 @@ if(BUILD_TESTING)
 
     list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
     include(Catch)
-    catch_discover_tests(db_tests)
+    catch_discover_tests(database_tests)
 endif()
