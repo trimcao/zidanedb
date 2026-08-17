@@ -1,11 +1,12 @@
 ## How to build
+Just use `make`:
 ```
-cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON   # configure
-cmake --build build   # compile and link
+make build
 ```
 
 To build fresh
 ```
-cmake --build build --target clean  # clean compiled outputs
-cmake --build build --clean-first   # or clean and immeditely rebuild
+make clean          # clean first
+make superclean     # or clean everything
+make build          # build again
 ```

@@ -1,6 +1,10 @@
+#include "commands.h"
+#include "zidanedb/database.h"
 #include <CLI/CLI.hpp>
+#include <filesystem>
 #include <iostream>
 #include <string>
+#include <utility>
 
 /*
 Guidelines for main(): keep main() thin
@@ -61,18 +65,32 @@ int main(int argc, char** argv)
         return app.exit(error);
     }
 
+    // build the database
+    std::filesystem::path path {database_path};
+    zidanedb::Database db {path};
+
     try {
         if (*put_command) {
-            std::cout << std::format("Put {}={} to {}\n", put_key, put_value, database_path);
-            // return run_put(database_path, put_key, put_value);
+            // std::cout << std::format("Put {}={} to {}\n", put_key, put_value, database_path);
+            return zidanedb::cli::run_put(
+                db,
+                std::move(put_key),
+                std::move(put_value),
+                std::cout);
         }
         if (*get_command) {
-            std::cout << std::format("Get {} from {}\n", get_key, database_path);
-            // return run_get(database_path, put_key, put_value);
+            // std::cout << std::format("Get {} from {}\n", get_key, database_path);
+            return zidanedb::cli::run_get(
+                db,
+                get_key,
+                std::cout, std::cerr);
         }
         if (*delete_command) {
-            std::cout << std::format("Delete {} from {}\n", delete_key, database_path);
-            // return run_delete(database_path, put_key, put_value);
+            // std::cout << std::format("Delete {} from {}\n", delete_key, database_path);
+            return zidanedb::cli::run_delete(
+                db,
+                delete_key,
+                std::cout, std::cerr);
         }
     } catch (const std::exception& error) {
         std::cerr << "zidane: " << error.what() << '\n';

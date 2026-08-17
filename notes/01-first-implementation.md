@@ -1123,3 +1123,271 @@ void Database::put(std::string key, std::string val)
 `key` and `val` are local by-value parameters whose resources are moved into the map. Making them `const` would interfere with efficient moving.
 
 Therefore, `const` is both a safe-programming practice and part of designing an accurate C++ interface. It documents intent, but unlike a comment, the compiler verifies it.
+
+### 14. Why does `Database::put()` return `void`, and why does `run_put()` not receive an error stream?
+
+These are two separate design decisions at two different layers:
+
+- `Database::put()` performs a database operation.
+- `run_put()` translates that operation into CLI output and an exit code.
+
+#### Why does `Database::put()` return `void`?
+
+The current API follows this contract:
+
+```cpp
+void Database::put(std::string key, std::string value);
+```
+
+Its meaning is:
+
+> `put()` succeeds, or it throws an exception.
+
+Therefore, a normal return already communicates success:
+
+```cpp
+database.put("player", "Zidane");
+
+// Reaching here means put() succeeded.
+```
+
+A failure, such as being unable to write the database file, would interrupt normal execution:
+
+```cpp
+try {
+    database.put("player", "Zidane");
+} catch (const std::exception& error) {
+    std::cerr << error.what() << '\n';
+}
+```
+
+Returning `bool` might look useful:
+
+```cpp
+bool put(...);
+```
+
+However, a bare `false` would be ambiguous. It might mean that the file could not be written, the key already existed, the value was invalid, or the database was corrupted.
+
+Returning something is appropriate if the caller needs additional information. For example:
+
+```cpp
+enum class PutResult {
+    inserted,
+    replaced
+};
+
+[[nodiscard]]
+PutResult put(std::string key, std::string value);
+```
+
+This would let the caller distinguish between creating and replacing a value:
+
+```cpp
+const auto result = database.put("player", "Zidane");
+
+if (result == PutResult::inserted) {
+    // A new key was created.
+}
+```
+
+If ZidaneDB treats insertion and replacement as the same successful operation, there is no useful result to return. In that case, `void` is the cleanest interface.
+
+#### Why does `run_put()` return `int`?
+
+Unlike `Database::put()`, `run_put()` is part of the CLI layer. Its return value represents a process exit code:
+
+```cpp
+return 0; // Command succeeded.
+return 1; // Command failed.
+```
+
+This allows `main()` to return the command's status directly:
+
+```cpp
+return zidanedb::cli::run_put(/* ... */);
+```
+
+The `int` is not the result of the database operation. It is the result of executing the CLI command.
+
+It would also be valid to make `run_put()` return `void` and let `main()` return zero afterward:
+
+```cpp
+run_put(/* ... */);
+return 0;
+```
+
+Returning `int` becomes useful when individual commands decide their own exit status.
+
+#### Why does `run_put()` not receive an error stream?
+
+In the example, errors thrown by `Database::put()` are handled centrally by `main()`:
+
+```cpp
+try {
+    return run_put(database, key, value, std::cout);
+} catch (const std::exception& error) {
+    std::cerr << "zidane: " << error.what() << '\n';
+    return 1;
+}
+```
+
+Therefore, `run_put()` only needs the success output stream:
+
+```cpp
+int run_put(
+    Database& database,
+    std::string key,
+    std::string value,
+    std::ostream& output);
+```
+
+It does not need an error stream because it does not print errors itself.
+
+By comparison, `run_get()` may handle a missing key directly:
+
+```cpp
+const auto value = database.get(key);
+
+if (!value) {
+    error << "Key not found\n";
+    return 1;
+}
+```
+
+A missing key is represented by `std::optional`, not by an exception, so `run_get()` needs somewhere to print that expected error.
+
+The resulting responsibility split is:
+
+```text
+Database I/O failure -> exception -> main() prints to std::cerr
+Missing get key      -> optional  -> run_get() prints to its error stream
+Successful command   -> run_*()   -> prints to its output stream
+```
+
+Do not add an `error` parameter to `run_put()` until it has an error condition that it handles itself. An unused parameter would only make the interface noisier.
+
+### 15. What is the philosophy behind `try`, `throw`, and `catch`?
+
+At a high level, exceptions let a function say:
+
+> I cannot complete my promised operation, and I cannot meaningfully recover here. Let the caller decide what to do.
+
+#### The basic mechanism
+
+```cpp
+try {
+    database.put("player", "Zidane");
+} catch (const std::exception& error) {
+    std::cerr << "zidane: " << error.what() << '\n';
+}
+```
+
+The flow is:
+
+1. Code inside `try` executes normally.
+2. A lower-level function detects a failure and uses `throw`.
+3. Normal execution stops.
+4. C++ searches upward for a compatible `catch`.
+5. Local objects are safely destroyed while moving upward.
+6. The `catch` block handles or reports the failure.
+
+For example:
+
+```cpp
+void Database::put(std::string key, std::string value)
+{
+    if (/* writing to disk failed */) {
+        throw std::runtime_error{"Could not write database file"};
+    }
+}
+```
+
+The important benefit is that every intermediate function does not need to repeatedly check and forward an error code:
+
+```text
+run_put()
+    -> Database::put()
+        -> write_database_file()
+            -> operating-system file operation fails
+```
+
+The exception can travel directly from the failing operation to an appropriate boundary, such as `main()`.
+
+#### Expected outcomes versus exceptional failures
+
+Exceptions are usually best for situations where a function cannot fulfill its contract:
+
+- The database file cannot be opened.
+- A disk write fails.
+- The database file is corrupted.
+- Permissions prevent an operation.
+- An internal invariant has been violated.
+
+Routine outcomes should normally use regular return values:
+
+```cpp
+const auto value = database.get("missing");
+
+if (!value) {
+    // Missing keys are expected, so get() returns std::nullopt.
+}
+```
+
+A useful rule is:
+
+> If callers are expected to make ordinary decisions based on an outcome, return it. If the operation cannot be completed normally, consider reporting an error.
+
+The boundary is sometimes subjective. Different professional C++ projects choose exceptions, explicit result objects, or error codes depending on their requirements.
+
+#### Where should exceptions be caught?
+
+Do not put `try`/`catch` around every function call. Catch an exception when the code can do something useful:
+
+- Recover from it.
+- Retry safely.
+- Add meaningful context and rethrow it.
+- Translate it for the user.
+- Stop it from escaping an application boundary.
+
+For ZidaneDB, `main()` is a natural boundary:
+
+```cpp
+int main(int argc, char** argv)
+{
+    try {
+        // Parse arguments and run the selected operation.
+    } catch (const std::exception& error) {
+        std::cerr << "zidane: " << error.what() << '\n';
+        return 1;
+    }
+
+    return 0;
+}
+```
+
+The database library reports the failure. The CLI translates it into a message and nonzero exit code.
+
+#### How does a professional-grade database handle failures?
+
+A production database usually handles failures in layers:
+
+- **Classification:** Distinguish missing data, invalid requests, transient I/O failures, corruption, and internal bugs.
+- **Clear error information:** Use typed errors or result objects with useful error codes and context.
+- **State protection:** Ensure a failed write does not leave half-written or inconsistent data.
+- **Recovery:** Use techniques such as transactions, write-ahead logs, checksums, and startup recovery.
+- **Cleanup:** Reliably release locks, files, memory, and other resources.
+- **Boundary translation:** Convert internal failures into API responses, CLI messages, logs, or process exit codes.
+- **Observability:** Record enough information for operators to understand failures.
+- **Careful retries:** Retry only failures that are genuinely transient and safe to repeat.
+
+The central promise is usually:
+
+> Either the operation completes successfully, or the database remains in a known consistent state and reports why it could not complete.
+
+For the first version of ZidaneDB, the current philosophy is reasonable:
+
+- `get()` uses `std::optional` for an expected missing key.
+- `erase()` uses `bool` to report whether a key existed.
+- `put()` returns normally on success and throws if it cannot complete.
+- `main()` catches unexpected operational failures and translates them into CLI errors.

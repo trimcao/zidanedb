@@ -33,18 +33,27 @@ target_compile_features(zidanedb
         cxx_std_20
 )
 
+add_library(zidane_cli
+    apps/zidane/commands.cpp
+    apps/zidane/commands.h
+)
+
+target_link_libraries(zidane_cli
+    PUBLIC zidanedb
+)
+
 add_executable(zidane
-    apps/zidane.cpp
+    apps/zidane/zidane.cpp
 )
 
 target_link_libraries(zidane
     PRIVATE
-        zidanedb
+        zidane_cli
         CLI11::CLI11
 )
 
 add_executable(matrix
-    apps/matrix.cpp
+    apps/matrix/matrix.cpp
 )
 
 target_link_libraries(matrix
@@ -55,8 +64,6 @@ target_link_libraries(matrix
 include(CTest)
 
 if(BUILD_TESTING)
-    include(FetchContent)
-
     FetchContent_Declare(
         Catch2
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git
