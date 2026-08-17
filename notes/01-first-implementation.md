@@ -393,3 +393,376 @@ Open VS Code's **Output** panel and select **clangd**. Its log should say that i
 If the real CMake build succeeds while VS Code still shows a red underline, the underline remains an editor-analysis problem rather than a compiler error.
 
 Avoid fixing this by adding only a hard-coded `-std=c++20` fallback flag. A compilation database is better because it also communicates include directories and target-specific options, and it stays synchronized with the CMake project.
+
+### 7. A brief introduction to `std::filesystem`
+
+`std::filesystem` is the part of the C++ standard library for representing paths and interacting with files and directories. It became part of standard C++ in C++17.
+
+Include it:
+
+```cpp
+#include <filesystem>
+
+// Convenient inside a .cpp file:
+namespace fs = std::filesystem;
+```
+
+Inside an implementation file, you can optionally create the shorter alias `namespace fs = std::filesystem;`. In a public header, spelling out `std::filesystem` keeps the interface explicit and avoids introducing a global alias into every including file.
+
+Its central type is `std::filesystem::path`:
+
+```cpp
+fs::path database_path{"data/store.zdb"};
+```
+
+A `path` represents a filesystem path. Constructing one does not create or open the corresponding file, and the path does not have to exist yet.
+
+Compared with storing a path as a plain `std::string`, `fs::path` communicates intent and provides path-specific operations:
+
+```cpp
+fs::path directory{"data"};
+fs::path database_path = directory / "store.zdb";
+
+database_path.filename();      // "store.zdb"
+database_path.parent_path();   // "data"
+database_path.extension();     // ".zdb"
+```
+
+The `/` operator joins path components using the conventions of the current operating system.
+
+The namespace also provides functions for inspecting and changing the filesystem:
+
+```cpp
+fs::exists(database_path);
+fs::is_regular_file(database_path);
+fs::file_size(database_path);
+fs::create_directories("data/backups");
+fs::rename("old.zdb", "new.zdb");
+fs::remove(database_path);
+```
+
+Directory contents can be traversed with `fs::directory_iterator` or `fs::recursive_directory_iterator`.
+
+For ZidaneDB, an early use is storing the database location:
+
+```cpp
+class Database {
+public:
+    explicit Database(std::filesystem::path path);
+
+private:
+    std::filesystem::path path_;
+};
+```
+
+The constructor might receive `"data/store.zdb"`, store it in `path_`, and then use that path with file streams after including `<fstream>`:
+
+```cpp
+std::ifstream input{path_, std::ios::binary};
+std::ofstream output{path_, std::ios::binary | std::ios::app};
+```
+
+Most filesystem operations have two error-handling styles. One throws `std::filesystem::filesystem_error` on failure:
+
+```cpp
+auto size = fs::file_size(path_);
+```
+
+Another accepts `std::error_code` and reports the error without throwing:
+
+```cpp
+std::error_code error;
+auto size = fs::file_size(path_, error);
+
+if (error) {
+    // Handle the failure.
+}
+```
+
+One important boundary: `std::filesystem` helps with paths and filesystem operations, but it does not provide a database format, record serialization, buffering policy, crash recovery, or durability guarantees. Those remain responsibilities of ZidaneDB's storage implementation.
+
+The C++ standards committee adopted the library into C++17 through [P0218R1](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/p0218r1.html).
+
+### 8. What is a namespace in C++?
+
+A namespace is a named scope used to organize declarations and prevent name collisions.
+
+Suppose two libraries both define a class named `Database`. Without separate namespaces, those names would conflict. Namespaces give each class a distinct fully qualified name:
+
+```cpp
+namespace zidanedb {
+class Database {};
+}
+
+namespace analytics {
+class Database {};
+}
+```
+
+The two types are:
+
+```cpp
+zidanedb::Database
+analytics::Database
+```
+
+The `::` token is the **scope-resolution operator**. It means “look for the name on the right inside the scope on the left.”
+
+The relevant name hierarchy in this project looks roughly like:
+
+```text
+global namespace
+├── std
+│   ├── string
+│   ├── optional
+│   └── filesystem
+│       └── path
+└── zidanedb
+    └── Database
+```
+
+Therefore:
+
+```cpp
+std::string
+std::optional
+std::filesystem::path
+zidanedb::Database
+```
+
+are qualified names identifying exactly which scope contains each name.
+
+#### Declaring and using a namespace
+
+The public header places `Database` inside the project's namespace:
+
+```cpp
+namespace zidanedb {
+
+class Database {
+    // ...
+};
+
+}  // namespace zidanedb
+```
+
+Code outside that namespace uses the qualified name:
+
+```cpp
+zidanedb::Database database{"store.zdb"};
+```
+
+Code already inside `namespace zidanedb` can use the shorter name `Database` because it is already looking in the correct scope.
+
+A namespace can be reopened. The declarations do not have to appear in one continuous block:
+
+```cpp
+namespace zidanedb {
+class Database;
+}
+
+namespace zidanedb {
+class Options;
+}
+```
+
+Both classes belong to the same `zidanedb` namespace. This is how declarations spread across multiple headers and source files can share one project namespace.
+
+#### Defining a member function in the source file
+
+There are two common spellings. The first uses the fully qualified class name:
+
+```cpp
+std::optional<std::string>
+zidanedb::Database::get(const std::string& key) const
+{
+    // ...
+}
+```
+
+The second reopens the namespace:
+
+```cpp
+namespace zidanedb {
+
+std::optional<std::string>
+Database::get(const std::string& key) const
+{
+    // ...
+}
+
+}  // namespace zidanedb
+```
+
+They define the same function. The second style is convenient when a source file contains several definitions from the same namespace.
+
+#### What is `namespace std`?
+
+The C++ standard library places its declarations in the namespace named `std`:
+
+```cpp
+std::string
+std::unordered_map
+std::filesystem::path
+```
+
+This keeps standard-library names separate from names defined by applications and other libraries. Application code should not place its own ordinary declarations inside `namespace std`; that namespace belongs to the standard library.
+
+#### Namespace aliases
+
+A namespace alias gives an existing namespace a shorter alternate name:
+
+```cpp
+namespace fs = std::filesystem;
+
+fs::path path{"store.zdb"};
+```
+
+`fs` is not a copy of `std::filesystem` and does not create another namespace. It is simply another name for the same namespace.
+
+Aliases are useful in implementation files when a namespace is long and used frequently. Avoid placing broad convenience aliases in public headers because every file including the header would see them.
+
+#### `using` declarations and directives
+
+A **using declaration** brings one specific name into the current scope:
+
+```cpp
+using std::string;
+
+string key;
+```
+
+A **using directive** makes names from an entire namespace available for unqualified lookup:
+
+```cpp
+using namespace std;
+
+string key;
+filesystem::path path;
+```
+
+Avoid `using namespace std;` in headers. It affects every file that includes the header and can create collisions or make it unclear where names originate. Explicit names such as `std::string` are clearer in a public API.
+
+Using a single selected name in a limited implementation scope is less risky, but fully qualified names are often still the clearest choice.
+
+#### Unnamed namespaces
+
+An unnamed namespace makes declarations private to one translation unit, normally one `.cpp` file:
+
+```cpp
+namespace {
+
+constexpr int record_version = 1;
+
+bool is_valid_record(/* ... */)
+{
+    // ...
+}
+
+}  // namespace
+```
+
+This is useful for helper functions, constants, and implementation details used only by `database.cpp`. Do not put such helpers in the public `zidanedb` API merely so the implementation can name them.
+
+#### Namespaces and directories are independent
+
+A source directory does not automatically create a C++ namespace. The directory:
+
+```text
+include/zidanedb/
+```
+
+and the declaration:
+
+```cpp
+namespace zidanedb {
+}
+```
+
+are connected only by project convention. The filesystem organizes files; C++ namespace declarations organize program names.
+
+For this project, the practical rule is:
+
+- Put the public database API in `namespace zidanedb`.
+- Keep standard-library names qualified with `std::`.
+- Use a namespace alias such as `fs` only in a limited implementation scope.
+- Put `.cpp`-only helpers in an unnamed namespace.
+- Avoid `using namespace std;` in headers.
+
+The standard's namespace-alias syntax is described by the C++ standards committee, including in [N1344](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2002/n1344.pdf), and nested namespace declarations were standardized through [N4230](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2014/n4230.html).
+
+### 9. How do I define `Database` methods in `database.cpp`?
+
+The header declares the class inside `namespace zidanedb`. The source file can reopen that same namespace and define each member there:
+
+```cpp
+#include "zidanedb/database.h"
+
+#include <utility>
+
+namespace zidanedb {
+
+Database::Database(std::filesystem::path path)
+    : path_(std::move(path))
+{
+}
+
+std::optional<std::string>
+Database::get(const std::string& key) const
+{
+    auto it = data_.find(key);
+
+    if (it == data_.end()) {
+        return std::nullopt;
+    }
+
+    return it->second;
+}
+
+void Database::put(std::string key, std::string value)
+{
+    data_.insert_or_assign(std::move(key), std::move(value));
+}
+
+bool Database::erase(const std::string& key)
+{
+    return data_.erase(key) != 0;
+}
+
+}  // namespace zidanedb
+```
+
+This is only an in-memory implementation. It stores the path but does not yet load or write persistent data.
+
+The important names are `Database::Database` for the constructor and `Database::get`, `Database::put`, and `Database::erase` for the member functions. Opening `namespace zidanedb` means the definitions do not need the longer `zidanedb::Database::` prefix. They still need `Database::` because C++ must be told that each function belongs to the class rather than being a free function in the namespace.
+
+The alternative is not to open a namespace block and instead qualify every definition fully:
+
+```cpp
+zidanedb::Database::Database(std::filesystem::path path)
+    : path_(std::move(path))
+{
+}
+
+std::optional<std::string>
+zidanedb::Database::get(const std::string& key) const
+{
+    // ...
+}
+```
+
+Both styles are valid. Reopening the namespace is usually easier when one source file defines several methods from the same class.
+
+There are three other details to notice:
+
+1. `explicit` appears on the constructor declaration inside the class, but not on its out-of-class definition.
+2. `[[nodiscard]]` on the declaration is sufficient; it does not need to be repeated on the definition.
+3. The trailing `const` is part of `get()`'s signature, so it must appear on both the declaration and definition.
+
+Because `database.h` names `std::optional`, that header must directly include its declaration:
+
+```cpp
+#include <optional>
+```
+
+Headers should include what they use rather than depending on another standard header to include it indirectly.

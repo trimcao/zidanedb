@@ -4,20 +4,30 @@
 #include <string>
 #include <unordered_map>
 #include <filesystem>
+#include <optional>
+
 namespace zidanedb {
 
 class Database {
 private:
-    std::string filename; // for persistence
+    std::filesystem::path path_; // for persistence
     std::unordered_map<std::string, std::string> data_;
 
 public:
     explicit Database(std::filesystem::path path);
-    std::string get(std::string key);
-    int put(std::string key, std::string val);
-    int del(std::string key);
+
+    [[nodiscard]]
+    std::optional<std::string> get(const std::string& key) const;
+
+    // note: we use exception-based design for put
+    // put() succeeds or throws an exception.
+    void put(std::string key, std::string val);
+
+    // erase() reports whether the key existed.
+    [[nodiscard]]
+    bool erase(const std::string& key);
 };
 
-}
+} // namespace zidanedb
 
-#endif
+#endif // ZIDANEDB_DATABASE_H
