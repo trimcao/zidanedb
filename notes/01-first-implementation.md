@@ -3,6 +3,13 @@
 ## Motivation
 Implement a very, very basic key-value store. Make sure the database lib code works, the `zidane` cli and `matrix` cli work. Learn to add some unit tests.
 
+## Takeaways (my own words)
+- C++ is not like C at all.
+- Modern C++ is pretty "modern" (boring). I can definitely see why C++ is still heavily used today.
+- References in C++ are similar to, but not quite, pointers.
+- `std::move()` is important regarding ownership. Yes, I am learning serious programming now.
+- This project will be a hell of a ride.
+
 ## Lessons
 
 ### 1. Why does `std::filesystem` not exist on my setup?
@@ -958,3 +965,161 @@ After an object has potentially been moved from, it can safely be destroyed or a
 ```
 
 C++ move semantics were introduced to [avoid logically unnecessary expensive copies](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2006/n2027.html).
+
+### 13. What does the `const` keyword mean, and is it required?
+
+`const` is a compiler-enforced promise that something will not be modified through a particular variable, reference, pointer, or method. It is not merely a convention, and it normally has no runtime cost.
+
+It is not required everywhere, but using it correctly makes interfaces clearer and lets the compiler catch accidental modification.
+
+#### A `const` variable
+
+```cpp
+const int maximum_size = 100;
+
+// Error: maximum_size is read-only.
+maximum_size = 200;
+```
+
+Use this when a variable should not be reassigned after initialization:
+
+```cpp
+const auto result = database.get("player");
+```
+
+Here, `result` cannot later be assigned a different optional value.
+
+#### A `const` reference parameter
+
+The `get()` method has:
+
+```cpp
+std::optional<std::string>
+get(const std::string& key) const;
+```
+
+This part:
+
+```cpp
+const std::string& key
+```
+
+combines two ideas:
+
+- `&` avoids copying the string.
+- `const` prevents `get()` from changing the caller's string through this reference.
+
+For example:
+
+```cpp
+void inspect(const std::string& value)
+{
+    std::cout << value;
+
+    // Error: value is read-only through this reference.
+    value = "something else";
+}
+```
+
+Without `const`, a reference parameter communicates that the function may modify the caller's object:
+
+```cpp
+void modify(std::string& value)
+{
+    value = "changed";
+}
+```
+
+`const&` does not make the original string permanently immutable. It only prevents this function from modifying it through that reference.
+
+#### A `const` member function
+
+The second `const` in `get()` has a different purpose:
+
+```cpp
+get(const std::string& key) const;
+//                          ^^^^^
+```
+
+This trailing `const` means:
+
+> Calling `get()` will not modify the observable state of this `Database`.
+
+The compiler enforces that promise:
+
+```cpp
+std::optional<std::string>
+Database::get(const std::string& key) const
+{
+    // Allowed: this only reads data_.
+    auto it = data_.find(key);
+
+    // Error: get() is a const member function.
+    data_.erase(key);
+}
+```
+
+It also allows `get()` to be called on a const database:
+
+```cpp
+const zidanedb::Database db{"example.db"};
+
+db.get("player");       // Allowed because get() is const.
+db.put("player", "Z");  // Error because put() is not const.
+```
+
+The methods in `Database` therefore have appropriate `const` usage:
+
+```cpp
+std::optional<std::string> get(const std::string& key) const;
+bool erase(const std::string& key);
+```
+
+`get()` is `const` because it only observes the database. `erase()` cannot be `const` because it changes the database.
+
+#### `const` and pointers
+
+Pointer declarations can initially look strange:
+
+```cpp
+const std::string* pointer;
+```
+
+The string is read-only through the pointer, but the pointer may point somewhere else.
+
+```cpp
+std::string* const pointer = &value;
+```
+
+The pointer cannot point somewhere else, but the string can be modified.
+
+```cpp
+const std::string* const pointer = &value;
+```
+
+Neither the pointer nor the string can be changed through it. A useful reading trick is to start next to the variable name:
+
+```cpp
+std::string* const pointer;
+//           ^ pointer is const
+```
+
+#### Practical guidelines
+
+- Use `const T&` for input objects that should not be copied or modified.
+- Mark member functions `const` when they do not change the object's logical state.
+- Consider making local variables `const` when they should never be reassigned.
+- Do not use `const` when the object genuinely needs to be modified or moved from.
+
+For example, the `put()` parameters should remain non-const:
+
+```cpp
+void Database::put(std::string key, std::string val)
+{
+    data_.insert_or_assign(std::move(key), std::move(val));
+}
+```
+
+`key` and `val` are local by-value parameters whose resources are moved into the map. Making them `const` would interfere with efficient moving.
+
+Therefore, `const` is both a safe-programming practice and part of designing an accurate C++ interface. It documents intent, but unlike a comment, the compiler verifies it.
