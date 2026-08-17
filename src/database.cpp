@@ -1,4 +1,5 @@
 #include "zidanedb/database.h"
+#include <utility>
 
 namespace zidanedb {
 
@@ -20,7 +21,11 @@ Database::get(const std::string& key) const
 
 void Database::put(std::string key, std::string val)
 {
-    // TODO: why we need std::move() here
+    // note about std::move():
+    // std::move() gives permission to transfer resources from an object because
+    // its current value is no longer needed.
+    // std::move() itself does not perform the transfer. It marks the object as movable;
+    // the receiving constructor or function decides what happens.
     data_.insert_or_assign(std::move(key), std::move(val));
 }
 

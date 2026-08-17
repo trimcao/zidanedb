@@ -766,3 +766,195 @@ Because `database.h` names `std::optional`, that header must directly include it
 ```
 
 Headers should include what they use rather than depending on another standard header to include it indirectly.
+
+### 10. Why can `zidane.cpp` not include `<CLI/CLI.hpp>`?
+
+The include spelling is correct:
+
+```cpp
+#include <CLI/CLI.hpp>
+```
+
+The problem is that the CMake project does not currently obtain CLI11 or give its include directory to the `zidane` target. The generated compile command for `zidane.cpp` contains only ZidaneDB's own public include directory, so neither the compiler nor clangd has anywhere to find `CLI/CLI.hpp`.
+
+#### Fetch CLI11
+
+Load `FetchContent` and declare CLI11 outside the `BUILD_TESTING` block because `zidane` needs it even when tests are disabled. A suitable location is after `project()` and before the executable targets:
+
+```cmake
+include(FetchContent)
+
+FetchContent_Declare(
+    CLI11
+    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+    GIT_TAG        v2.6.2
+)
+
+FetchContent_MakeAvailable(CLI11)
+```
+
+The existing `include(FetchContent)` inside `if(BUILD_TESTING)` then becomes redundant and can be removed. The Catch2 declaration itself can remain inside that conditional block.
+
+#### Attach CLI11 to the executable that uses it
+
+Add CLI11's CMake target to `zidane`:
+
+```cmake
+target_link_libraries(zidane
+    PRIVATE
+        zidanedb
+        CLI11::CLI11
+)
+```
+
+CLI11 is header-only, so this does not link a compiled CLI11 binary. `CLI11::CLI11` is a CMake interface target that propagates the correct header search path and other usage requirements to `zidane`.
+
+Do not attach CLI11 to the `zidanedb` library. Command-line parsing belongs to the application, while the database library should remain independent of the CLI framework. Attach it separately to `matrix` later only if `matrix.cpp` also includes CLI11.
+
+#### Reconfigure and build
+
+After changing `CMakeLists.txt`, run:
+
+```sh
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build --target zidane
+```
+
+The first configure downloads CLI11 into the build tree. The generated compile command for `zidane.cpp` should then contain an include path similar to:
+
+```text
+build/_deps/cli11-src/include
+```
+
+If the terminal build succeeds but VS Code keeps showing the old error, restart clangd from the command palette so it reloads `build/compile_commands.json`.
+
+Changing angle brackets to quotes or writing a relative path into `build/_deps` is not the right fix. The source code should keep the library's documented include spelling, while CMake supplies the physical include directory.
+
+The [official CLI11 repository](https://github.com/CLIUtils/CLI11) describes CLI11 as a header-only library, and its [basic example](https://cliutils.github.io/CLI11/book/chapters/basics.html) uses `#include "CLI/CLI.hpp"`. The current release used here is [v2.6.2](https://github.com/CLIUtils/CLI11/releases/tag/v2.6.2).
+
+### 11. Why does `zidane.cpp` call `app.require_subcommand(1, 1)`?
+
+```cpp
+app.require_subcommand(1, 1);
+```
+
+The two arguments set the allowed range of selected subcommands:
+
+```text
+minimum subcommands: 1
+maximum subcommands: 1
+```
+
+Therefore, the user must select exactly one of:
+
+```text
+put
+get
+delete
+```
+
+These are valid invocations:
+
+```sh
+./build/zidane --db store.zdb put player Zidane
+./build/zidane --db store.zdb get player
+./build/zidane --db store.zdb delete player
+```
+
+This is invalid because no subcommand was selected:
+
+```sh
+./build/zidane --db store.zdb
+```
+
+This is invalid because multiple operations were requested:
+
+```sh
+./build/zidane --db store.zdb put player Zidane get player
+```
+
+Without the requirement, the invocation with no subcommand would parse without selecting an operation. All three dispatch conditions would then be false:
+
+```cpp
+if (*put_command) { /* ... */ }
+if (*get_command) { /* ... */ }
+if (*delete_command) { /* ... */ }
+```
+
+The program would reach the end and silently return success without doing anything. CLI11 also permits multiple subcommands by default, so the upper limit establishes a useful invariant: after successful parsing, exactly one dispatch branch can run.
+
+This shorter form is equivalent:
+
+```cpp
+app.require_subcommand(1);
+```
+
+The two-argument form is useful here because it makes both the minimum and maximum explicit. Calling `require_subcommand()` without arguments means one or more subcommands, so it would not enforce the upper limit. [CLI11's subcommand documentation](https://cliutils.github.io/CLI11/book/chapters/subcommands.html) describes these forms.
+
+This setting controls only subcommands. It does not make the database option mandatory. If every operation needs a database path, that option needs its own requirement:
+
+```cpp
+app.add_option("-d,--db", database_path, "Path to the database")
+    ->required();
+```
+
+### 12. Does `std::move()` transfer ownership?
+
+Often, yes—but more precisely:
+
+> `std::move()` gives permission to transfer resources from an object because its current value is no longer needed.
+
+`std::move()` itself does not perform the transfer. It changes how an expression is treated so that the receiving constructor, assignment operator, or function can use move semantics.
+
+For example:
+
+```cpp
+std::string destination = std::move(source);
+```
+
+Conceptually:
+
+1. `std::move(source)` marks `source` as expendable.
+2. `std::string`'s move constructor runs.
+3. It may transfer its internal character buffer to `destination` instead of copying every character.
+4. `source` remains a valid object, but its value is unspecified.
+
+With `std::unique_ptr`, moving represents literal ownership transfer:
+
+```cpp
+auto destination = std::move(source);
+```
+
+Afterward, `destination` owns the managed object and `source` is null.
+
+For a simple type, there may be no resource to transfer:
+
+```cpp
+int destination = std::move(source);
+```
+
+An integer is effectively copied because it has no separately owned resource.
+
+Therefore, in ZidaneDB:
+
+```cpp
+data_.insert_or_assign(std::move(key), std::move(val));
+```
+
+the intent is:
+
+> The map may take the resources of these local strings; their current values will not be needed afterward.
+
+This is safe because `key` and `val` are by-value parameters local to `put()` and are about to be destroyed when the function returns.
+
+A useful mental rename for `std::move` is **`allow_move_from`**, not **`perform_move`**.
+
+After an object has potentially been moved from, it can safely be destroyed or assigned a new value. Do not otherwise depend on its previous value unless the type explicitly documents its moved-from state.
+
+`std::move()` is declared in:
+
+```cpp
+#include <utility>
+```
+
+C++ move semantics were introduced to [avoid logically unnecessary expensive copies](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2006/n2027.html).

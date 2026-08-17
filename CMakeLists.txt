@@ -6,6 +6,16 @@ project(
     LANGUAGES CXX
 )
 
+include(FetchContent)
+
+FetchContent_Declare(
+    CLI11
+    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+    GIT_TAG        v2.6.2
+)
+
+FetchContent_MakeAvailable(CLI11)
+
 add_library(zidanedb
     src/database.cpp
     include/zidanedb/database.h
@@ -30,6 +40,7 @@ add_executable(zidane
 target_link_libraries(zidane
     PRIVATE
         zidanedb
+        CLI11::CLI11
 )
 
 add_executable(matrix
