@@ -56,21 +56,6 @@ Database::get(const std::string& key) const
 void Database::put(std::string key, std::string val)
 {
     std::ofstream file;
-
-    try {
-        file.open(
-            path_,
-            std::ios::app
-        );
-        file << key << "\n";
-        file << val << "\n";
-        // file.close();
-    } catch (const std::ios_base::failure &error) {
-        throw std::runtime_error {
-            "Could not write database file: " + path_.string()
-        };
-    }
-
     // note about std::move():
     // std::move() gives permission to transfer resources from an object because
     // its current value is no longer needed.
@@ -80,6 +65,27 @@ void Database::put(std::string key, std::string val)
 
     // one lesson: after doing std::move(key), the variable key does not contain
     // any data anymore.
+
+    // idea: cannot appending to the db file mindlessly
+    // duplicate keys cannot stay in the db.
+    // very naive solution: write everything from scratch
+    try {
+        file.open(
+            path_,
+            std::ios::trunc
+        );
+
+        for (const auto& [k, v] : data_) {
+            file << k << "\n";
+            file << v << "\n";
+        }
+
+        file.close();
+    } catch (const std::ios_base::failure &error) {
+        throw std::runtime_error {
+            "Could not write database file: " + path_.string()
+        };
+    }
 }
 
 bool Database::erase(const std::string& key)
