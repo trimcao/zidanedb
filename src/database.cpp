@@ -1,11 +1,45 @@
 #include "zidanedb/database.h"
+#include <iostream>
+#include <unordered_map>
 #include <utility>
+#include <filesystem>
+#include <fstream>
+#include <ios>
+#include <stdexcept>
 
 namespace zidanedb {
 
 Database::Database(std::filesystem::path path)
 {
     path_ = std::move(path);
+    data_ = std::unordered_map<std::string, std::string>{};
+
+    // check the path, if it exists, load the data to the map
+    if (!std::filesystem::exists(path_)) {
+        return;
+    }
+
+    // remember: After std::move(x), don’t read the old value of x;
+    // destroy it or assign a new value to it.
+    // So don't use `path` here, use `path_`
+    std::ifstream file{path_};
+    if (!file) {
+        std::cerr << "Could not open the file\n";
+        return;
+    }
+
+    int line_num = 0;
+    std::string line;
+    std::string key, value;
+    while (std::getline(file, line)) {
+        if (line_num % 2 == 0) {
+            key = line;
+        } else {
+            value = line;
+            data_[key] = value;
+        }
+        line_num++;
+    }
 }
 
 std::optional<std::string>
@@ -21,17 +55,62 @@ Database::get(const std::string& key) const
 
 void Database::put(std::string key, std::string val)
 {
+    std::ofstream file;
+
+    try {
+        file.open(
+            path_,
+            std::ios::app
+        );
+        file << key << "\n";
+        file << val << "\n";
+        // file.close();
+    } catch (const std::ios_base::failure &error) {
+        throw std::runtime_error {
+            "Could not write database file: " + path_.string()
+        };
+    }
+
     // note about std::move():
     // std::move() gives permission to transfer resources from an object because
     // its current value is no longer needed.
     // std::move() itself does not perform the transfer. It marks the object as movable;
     // the receiving constructor or function decides what happens.
     data_.insert_or_assign(std::move(key), std::move(val));
+
+    // one lesson: after doing std::move(key), the variable key does not contain
+    // any data anymore.
 }
 
 bool Database::erase(const std::string& key)
 {
-    return data_.erase(key);
+    bool retval = data_.erase(key);
+    // very dumb approach:
+    // delete the key-value pair from the map, and rewrite the whole thing.
+
+    std::ofstream file;
+
+    try {
+        file.open(
+            path_,
+            std::ios::trunc
+        );
+
+        for (const auto& [k, v] : data_) {
+            if (k != key) {
+                file << k << "\n";
+                file << v << "\n";
+            }
+        }
+
+        file.close();
+    } catch (const std::ios_base::failure &error) {
+        throw std::runtime_error {
+            "Could not write database file: " + path_.string()
+        };
+    }
+
+    return retval;
 }
 
 }
