@@ -47,5 +47,4 @@ int run_delete(
     return 0;
 }
 
-
 }
