@@ -13,12 +13,19 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
     GIT_TAG        v2.6.2
 )
-
 FetchContent_MakeAvailable(CLI11)
+
+FetchContent_Declare(
+    cppcodec
+    GIT_REPOSITORY https://github.com/tplgy/cppcodec.git
+    GIT_TAG        master
+)
+FetchContent_MakeAvailable(cppcodec)
 
 add_library(zidanedb
     src/database.cpp
     include/zidanedb/database.h
+    src/utils.h
 )
 
 target_include_directories(zidanedb
@@ -31,6 +38,11 @@ target_include_directories(zidanedb
 target_compile_features(zidanedb
     PUBLIC
         cxx_std_20
+)
+
+target_link_libraries(zidanedb
+    PRIVATE
+        cppcodec
 )
 
 add_library(zidane_cli

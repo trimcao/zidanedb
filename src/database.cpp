@@ -6,6 +6,7 @@
 #include <fstream>
 #include <ios>
 #include <stdexcept>
+#include "utils.h"
 
 namespace zidanedb {
 
@@ -36,7 +37,7 @@ Database::Database(std::filesystem::path path)
             key = line;
         } else {
             value = line;
-            data_[key] = value;
+            data_[key] = decode_base64(value);
         }
         line_num++;
     }
@@ -77,7 +78,7 @@ void Database::put(std::string key, std::string val)
 
         for (const auto& [k, v] : data_) {
             file << k << "\n";
-            file << v << "\n";
+            file << encode_base64(v) << "\n";
         }
 
         file.close();
@@ -105,7 +106,7 @@ bool Database::erase(const std::string& key)
         for (const auto& [k, v] : data_) {
             if (k != key) {
                 file << k << "\n";
-                file << v << "\n";
+                file << encode_base64(v) << "\n";
             }
         }
 

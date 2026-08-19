@@ -58,14 +58,20 @@ private:
 
 TEST_CASE("get returns no value for a missing key")
 {
-    zidanedb::Database db{"test.zdb"};
+    TemporaryDatabaseFile file{
+        "temp.zdb"
+    };
+    zidanedb::Database db{file.path()};
     const auto result = db.get("missing");
     REQUIRE_FALSE(result.has_value());
 }
 
 TEST_CASE("put stores a value")
 {
-    zidanedb::Database db{"test.zdb"};
+    TemporaryDatabaseFile file{
+        "temp.zdb"
+    };
+    zidanedb::Database db{file.path()};
     db.put("player", "Bellingham");
     const auto result = db.get("player");
     REQUIRE(result.has_value());
@@ -74,7 +80,10 @@ TEST_CASE("put stores a value")
 
 TEST_CASE("put replaces an existing value")
 {
-    zidanedb::Database db{"test.zdb"};
+    TemporaryDatabaseFile file{
+        "temp.zdb"
+    };
+    zidanedb::Database db{file.path()};
     db.put("player", "Bellingham");
     db.put("player", "Ronaldo");
     const auto result = db.get("player");
@@ -84,7 +93,10 @@ TEST_CASE("put replaces an existing value")
 
 TEST_CASE("erase removes an existing key")
 {
-    zidanedb::Database db{"test.zdb"};
+    TemporaryDatabaseFile file{
+        "temp.zdb"
+    };
+    zidanedb::Database db{file.path()};
     db.put("player", "Bellingham");
     const auto existed = db.erase("player");
     REQUIRE(existed);
@@ -93,7 +105,10 @@ TEST_CASE("erase removes an existing key")
 
 TEST_CASE("erase returns false for a missing key")
 {
-    zidanedb::Database db{"test.db"};
+    TemporaryDatabaseFile file{
+        "temp.zdb"
+    };
+    zidanedb::Database db{file.path()};
     REQUIRE_FALSE(db.erase("missing"));
 }
 
@@ -164,5 +179,25 @@ TEST_CASE("erased values remain erased after reopening")
         REQUIRE(nation.has_value());
         REQUIRE(*nation == "Portugal");
         REQUIRE_FALSE(position.has_value());
+    }
+}
+
+TEST_CASE("multi-line value should work")
+{
+    TemporaryDatabaseFile file{
+        "zidanedb-multiline-persistence-test.zdb"
+    };
+
+    {
+        zidanedb::Database database{file.path()};
+        database.put("player", "Ronaldo");
+        database.put("multi", "line1\nline2");
+    }
+
+    {
+        zidanedb::Database database{file.path()};
+        const auto multi = database.get("multi");
+        REQUIRE(multi.has_value());
+        REQUIRE(*multi == "line1\nline2");
     }
 }
