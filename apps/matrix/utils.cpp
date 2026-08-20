@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <string_view>
 
 std::string random_string(
     std::mt19937_64& random_engine,

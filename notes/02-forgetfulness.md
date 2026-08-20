@@ -45,6 +45,22 @@ One note from Codex:
 - A safer persistence design will eventually write to a temporary file first and replace the original only after the complete write succeeds.
 
 ## Challenges from Matrix
+First benchmark of ZidaneDB is here:
+
+Pairs:        10000
+
+Put time:     13.6539 seconds
+
+Put rate:     732.391 ops/second
+
+Load time:    0.00720542 seconds
+
+Verify time:  0.001888 seconds
+
+Get rate:     5.29661e+06 ops/second
+
+File size:    254890 bytes
+
 
 
 ## What's Next

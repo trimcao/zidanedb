@@ -66,7 +66,7 @@ target_link_libraries(zidane
 
 add_executable(matrix
     apps/matrix/matrix.cpp
-    apps/matrix/basic.cpp
+    apps/matrix/basic_tests.cpp
     apps/matrix/utils.cpp
 )
 
