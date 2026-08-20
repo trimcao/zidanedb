@@ -66,11 +66,14 @@ target_link_libraries(zidane
 
 add_executable(matrix
     apps/matrix/matrix.cpp
+    apps/matrix/basic.cpp
+    apps/matrix/utils.cpp
 )
 
 target_link_libraries(matrix
     PRIVATE
         zidanedb
+        CLI11::CLI11
 )
 
 include(CTest)

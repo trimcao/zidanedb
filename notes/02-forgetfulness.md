@@ -271,3 +271,89 @@ const std::filesystem::path& path() const
 In plain English:
 
 > Give the caller access to my path without copying it, but do not let the caller change it, and do not change this helper while doing so.
+
+### Encoding and decoding strings with Base64 in C++
+
+C++ does not currently provide Base64 in the standard library. One straightforward approach is to use a small, header-only library such as [cppcodec](https://github.com/tplgy/cppcodec).
+
+#### Add cppcodec with CMake
+
+Add a `FetchContent` declaration near the project's other dependency declarations:
+
+```cmake
+FetchContent_Declare(
+    cppcodec
+    GIT_REPOSITORY https://github.com/tplgy/cppcodec.git
+    GIT_TAG        master
+)
+
+FetchContent_MakeAvailable(cppcodec)
+```
+
+Then attach it to the library that uses it:
+
+```cmake
+target_link_libraries(zidanedb
+    PRIVATE
+        cppcodec
+)
+```
+
+For a reproducible project, `master` can later be replaced with a specific commit hash.
+
+#### Encode and decode strings
+
+```cpp
+#include <cppcodec/base64_rfc4648.hpp>
+
+#include <iostream>
+#include <string>
+
+using base64 = cppcodec::base64_rfc4648;
+
+int main()
+{
+    const std::string original{"Hello, ZidaneDB!"};
+
+    const std::string encoded =
+        base64::encode(original);
+
+    const std::string decoded =
+        base64::decode<std::string>(encoded);
+
+    std::cout << "Original: " << original << '\n';
+    std::cout << "Encoded:  " << encoded << '\n';
+    std::cout << "Decoded:  " << decoded << '\n';
+}
+```
+
+The standard RFC 4648 variant produces Base64 without embedded line breaks, and invalid encoded input causes a parsing exception. The [official cppcodec documentation](https://github.com/tplgy/cppcodec#api) describes its string encoding and typed decoding APIs.
+
+Small helper functions can keep the conversion details in one place:
+
+```cpp
+std::string encode_base64(const std::string& input)
+{
+    return base64::encode(input);
+}
+
+std::string decode_base64(const std::string& input)
+{
+    return base64::decode<std::string>(input);
+}
+```
+
+#### Test the round trip
+
+```cpp
+const std::string original{"first line\nsecond line"};
+
+const std::string encoded = encode_base64(original);
+const std::string decoded = decode_base64(encoded);
+
+REQUIRE(decoded == original);
+```
+
+Base64 can represent newlines, null bytes, and arbitrary binary data using printable characters. It is encoding—not encryption—and usually increases the data size by roughly one third.
+
+The OpenSSL library also provides [official Base64 routines](https://docs.openssl.org/master/man3/EVP_EncodeInit/), but its API is lower-level than cppcodec's direct string interface.
