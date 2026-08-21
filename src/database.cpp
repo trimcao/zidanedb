@@ -37,7 +37,10 @@ Database::Database(std::filesystem::path path)
             key = line;
         } else {
             value = line;
-            data_[key] = decode_base64(value);
+            if (!value.empty())
+                data_[key] = decode_base64(value);
+            else
+                data_.erase(key);
         }
         line_num++;
     }
@@ -56,30 +59,37 @@ Database::get(const std::string& key) const
 
 void Database::put(std::string key, std::string val)
 {
-    std::ofstream file;
+    // check if we actually need to put
+    auto cur_val = get(key);
+    if (cur_val == val) {
+        return;
+    }
+
     // note about std::move():
     // std::move() gives permission to transfer resources from an object because
     // its current value is no longer needed.
     // std::move() itself does not perform the transfer. It marks the object as movable;
     // the receiving constructor or function decides what happens.
+    std::string k = key;
+    std::string v = val;
     data_.insert_or_assign(std::move(key), std::move(val));
 
     // one lesson: after doing std::move(key), the variable key does not contain
     // any data anymore.
 
-    // idea: cannot appending to the db file mindlessly
-    // duplicate keys cannot stay in the db.
-    // very naive solution: write everything from scratch
+    std::ofstream file;
+
+    // new approach: keep writing to the db file
     try {
         file.open(
             path_,
-            std::ios::trunc
+            std::ios::app
         );
 
-        for (const auto& [k, v] : data_) {
-            file << k << "\n";
-            file << encode_base64(v) << "\n";
-        }
+        // assumption: the last write wins,
+        // the last value of the key stays
+        file << k << "\n";
+        file << encode_base64(v) << "\n";
 
         file.close();
     } catch (const std::ios_base::failure &error) {
@@ -92,29 +102,29 @@ void Database::put(std::string key, std::string val)
 bool Database::erase(const std::string& key)
 {
     bool retval = data_.erase(key);
-    // very dumb approach:
-    // delete the key-value pair from the map, and rewrite the whole thing.
+    // new approach:
+    // keep writing to the db file
 
     std::ofstream file;
 
-    try {
-        file.open(
-            path_,
-            std::ios::trunc
-        );
+    // only update the db file if the key is deleted
+    if (retval) {
+        try {
+            file.open(
+                path_,
+                std::ios::app
+            );
 
-        for (const auto& [k, v] : data_) {
-            if (k != key) {
-                file << k << "\n";
-                file << encode_base64(v) << "\n";
-            }
+            // assumption: empty value means the key is deleted
+            file << key << "\n";
+            file << "" << "\n";
+
+            file.close();
+        } catch (const std::ios_base::failure &error) {
+            throw std::runtime_error {
+                "Could not write database file: " + path_.string()
+            };
         }
-
-        file.close();
-    } catch (const std::ios_base::failure &error) {
-        throw std::runtime_error {
-            "Could not write database file: " + path_.string()
-        };
     }
 
     return retval;

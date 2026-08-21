@@ -44,26 +44,57 @@ Next question: when do I open the db file?
 One note from Codex:
 - A safer persistence design will eventually write to a temporary file first and replace the original only after the complete write succeeds.
 
-## Challenges from Matrix
+## Challenge from Matrix
 First benchmark of ZidaneDB is here:
 
+```
 Pairs:        10000
-
 Put time:     13.6539 seconds
-
 Put rate:     732.391 ops/second
-
 Load time:    0.00720542 seconds
-
 Verify time:  0.001888 seconds
-
 Get rate:     5.29661e+06 ops/second
-
 File size:    254890 bytes
+```
 
+Put rate is so bad. And we also haven't tested deletion yet, but it will
+be equally bad.
+The reason: with the current approach, basically we rewrite the whole database for each `put` op.
+Just remember why we did this in the first place: we wanted to avoid writing entries with the same key over and over to the db, and we won't know which entry is the latest one for that key anymore.
 
+## Fixing PUT performance
+Previously, my `put` strategy is:
+- For each put, write the whole database again.
+- Why? Because I don't want to have multiple entries with the same key on the db file.
+
+Of course, that was hilariously naive.
+New `put` strategy:
+- For each put, keep writing new entries to the db.
+- Small optimization: only write new entries of the current value differs from the new value.
+
+Same strategy for `delete`:
+- Assumption: having an empty value is equal to being deleted.
+- Write a new entry of: `<key>` and `<empty-value>` to the db.
+- Only write another entry of the same key if the value changes from empty to non-empty.
+
+New performance benchmark
+```
+./build/matrix perf-basic
+Pairs:        10000
+Put time:     0.225061 seconds
+Put rate:     44432.4 ops/second
+Load time:    0.00734896 seconds
+Verify time:  0.00182871 seconds
+Get rate:     5.46834e+06 ops/second
+File size:    254890 bytes
+```
 
 ## What's Next
+Here are a few problems (some suggested by ChatGPT):
+- Define the PUT and DELETE APIs. What does this mean: `PUT("player", "")`?
+- Is `PUT` supposed to represent a state, or an event?
+- Compaction: how do I reclaim obsolete records? How and when to trigger
+compaction?
 
 
 ## Appendix
