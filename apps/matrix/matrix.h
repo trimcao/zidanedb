@@ -14,7 +14,7 @@ struct WorkloadOptions {
 };
 
 int run_basic();
-int run_perf_basic();
+int run_perf_basic(std::size_t pair_count);
 
 } // namespace matrix::tests
 

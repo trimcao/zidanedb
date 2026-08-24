@@ -1,4 +1,5 @@
 BUILD_DIR := build
+RELEASE_BUILD_DIR := build-release
 
 .PHONY: all configure build test clean superclean
 
@@ -26,3 +27,4 @@ clean:
 
 superclean:
 	cmake -E rm -rf $(BUILD_DIR)
+	cmake -E rm -rf $(RELEASE_BUILD_DIR)

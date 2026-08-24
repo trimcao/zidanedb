@@ -52,7 +52,7 @@ int main(int argc, char** argv)
         }
 
         if (*perf_basic) {
-            return matrix::tests::run_perf_basic();
+            return matrix::tests::run_perf_basic(pair_count);
         }
     } catch (const std::exception& error) {
         std::cerr << "matrix: " << error.what() << '\n';

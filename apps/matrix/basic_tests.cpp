@@ -30,10 +30,10 @@ int run_basic() {
                 "key-" +
                 std::to_string(index) +
                 "-" +
-                random_string(random_engine, 12);
+                matrix::tests::detail::random_string(random_engine, 12);
 
             std::string value =
-                random_string(random_engine, 32);
+                matrix::tests::detail::random_string(random_engine, 32);
 
             expected.emplace(key, value);
             database.put(key, value);
@@ -74,15 +74,15 @@ int run_basic() {
     return 0;
 }
 
-int run_perf_basic() {
+int run_perf_basic(std::size_t pair_count) {
     using Clock = std::chrono::steady_clock;
     using Seconds = std::chrono::duration<double>;
-
-    constexpr std::size_t pair_count = 10'000;
 
     const std::filesystem::path path =
         std::filesystem::temp_directory_path() /
         "matrix-performance.zdb";
+
+    std::cout << "Database file: " << path << '\n';
 
     std::filesystem::remove(path);
 

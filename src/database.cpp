@@ -6,7 +6,24 @@
 #include <fstream>
 #include <ios>
 #include <stdexcept>
-#include "utils.h"
+#include <cppcodec/base64_rfc4648.hpp>
+#include <string>
+
+namespace {
+
+using base64 = cppcodec::base64_rfc4648;
+
+inline std::string encode_base64(const std::string& input)
+{
+    return base64::encode(input);
+}
+
+inline std::string decode_base64(const std::string& input)
+{
+    return base64::decode<std::string>(input);
+}
+
+} // namespace
 
 namespace zidanedb {
 

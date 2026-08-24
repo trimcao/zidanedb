@@ -6,6 +6,8 @@ project(
     LANGUAGES CXX
 )
 
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 include(FetchContent)
 
 FetchContent_Declare(
@@ -18,7 +20,7 @@ FetchContent_MakeAvailable(CLI11)
 FetchContent_Declare(
     cppcodec
     GIT_REPOSITORY https://github.com/tplgy/cppcodec.git
-    GIT_TAG        master
+    GIT_TAG        8019b8b580f8573c33c50372baec7039dfe5a8ce
 )
 FetchContent_MakeAvailable(cppcodec)
 
@@ -45,9 +47,22 @@ target_link_libraries(zidanedb
         cppcodec
 )
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(zidanedb PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+    )
+endif()
+
 add_library(zidane_cli
     apps/zidane/commands.cpp
     apps/zidane/commands.h
+)
+
+target_include_directories(zidane_cli
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/apps/zidane"
 )
 
 target_link_libraries(zidane_cli

@@ -67,9 +67,10 @@ int main(int argc, char** argv)
 
     // build the database
     std::filesystem::path path {database_path};
-    zidanedb::Database db {path};
 
     try {
+        zidanedb::Database db {path};
+
         if (*put_command) {
             // std::cout << std::format("Put {}={} to {}\n", put_key, put_value, database_path);
             return zidanedb::cli::run_put(

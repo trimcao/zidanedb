@@ -59,7 +59,7 @@ private:
 TEST_CASE("get returns no value for a missing key")
 {
     TemporaryDatabaseFile file{
-        "temp.zdb"
+        "get-missing-key.zdb"
     };
     zidanedb::Database db{file.path()};
     const auto result = db.get("missing");
@@ -69,7 +69,7 @@ TEST_CASE("get returns no value for a missing key")
 TEST_CASE("put stores a value")
 {
     TemporaryDatabaseFile file{
-        "temp.zdb"
+        "put.zdb"
     };
     zidanedb::Database db{file.path()};
     db.put("player", "Bellingham");
@@ -81,7 +81,7 @@ TEST_CASE("put stores a value")
 TEST_CASE("put replaces an existing value")
 {
     TemporaryDatabaseFile file{
-        "temp.zdb"
+        "put-existing.zdb"
     };
     zidanedb::Database db{file.path()};
     db.put("player", "Bellingham");
@@ -94,7 +94,7 @@ TEST_CASE("put replaces an existing value")
 TEST_CASE("erase removes an existing key")
 {
     TemporaryDatabaseFile file{
-        "temp.zdb"
+        "erase.zdb"
     };
     zidanedb::Database db{file.path()};
     db.put("player", "Bellingham");
@@ -106,7 +106,7 @@ TEST_CASE("erase removes an existing key")
 TEST_CASE("erase returns false for a missing key")
 {
     TemporaryDatabaseFile file{
-        "temp.zdb"
+        "erase-missing-key.zdb"
     };
     zidanedb::Database db{file.path()};
     REQUIRE_FALSE(db.erase("missing"));
