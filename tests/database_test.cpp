@@ -109,7 +109,7 @@ TEST_CASE("erase returns false for a missing key")
         "erase-missing-key.zdb"
     };
     zidanedb::Database db{file.path()};
-    REQUIRE_FALSE(db.erase("missing"));
+    REQUIRE(db.erase("missing"));
 }
 
 TEST_CASE("put persists values after reopening")

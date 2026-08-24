@@ -1,5 +1,6 @@
 #include "zidanedb/database.h"
 #include <iostream>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 #include <filesystem>
@@ -30,11 +31,23 @@ namespace zidanedb {
 Database::Database(std::filesystem::path path)
 {
     path_ = std::move(path);
-    data_ = std::unordered_map<std::string, std::string>{};
+    // data_ = std::unordered_map<std::string, std::string>{};
+
+}
+
+std::optional<std::string>
+Database::get(const std::string& key) const
+{
+    // auto it = data_.find(key);
+    // if (it == data_.end()) {
+    //     return std::nullopt;
+    // }
+
+    // return it->second;
 
     // check the path, if it exists, load the data to the map
     if (!std::filesystem::exists(path_)) {
-        return;
+        return std::nullopt;
     }
 
     // remember: After std::move(x), don’t read the old value of x;
@@ -43,35 +56,29 @@ Database::Database(std::filesystem::path path)
     std::ifstream file{path_};
     if (!file) {
         std::cerr << "Could not open the file\n";
-        return;
-    }
-
-    int line_num = 0;
-    std::string line;
-    std::string key, value;
-    while (std::getline(file, line)) {
-        if (line_num % 2 == 0) {
-            key = line;
-        } else {
-            value = line;
-            if (!value.empty())
-                data_[key] = decode_base64(value);
-            else
-                data_.erase(key);
-        }
-        line_num++;
-    }
-}
-
-std::optional<std::string>
-Database::get(const std::string& key) const
-{
-    auto it = data_.find(key);
-    if (it == data_.end()) {
         return std::nullopt;
     }
 
-    return it->second;
+    // Ideally, try to read the file from bottom up
+    // because we want to find the last state of each key
+    // But it's complicated, so we will deal with that later
+    std::string k, v;
+    std::string final_val;
+    while (std::getline(file, k)) {
+        if (!std::getline(file, v)) {
+            // Incomplete or corrupted record
+            break;
+        }
+        if (k == key) {
+            final_val = v;
+        }
+    }
+
+    if (!final_val.empty()) {
+        return decode_base64(final_val);
+    }
+
+    return std::nullopt;
 }
 
 void Database::put(std::string key, std::string val)
@@ -89,7 +96,8 @@ void Database::put(std::string key, std::string val)
     // the receiving constructor or function decides what happens.
     std::string k = key;
     std::string v = val;
-    data_.insert_or_assign(std::move(key), std::move(val));
+
+    // to be removed: data_.insert_or_assign(std::move(key), std::move(val));
 
     // one lesson: after doing std::move(key), the variable key does not contain
     // any data anymore.
@@ -118,33 +126,35 @@ void Database::put(std::string key, std::string val)
 
 bool Database::erase(const std::string& key)
 {
-    bool retval = data_.erase(key);
+    // TODO: change in API return value, always return 1 when deleting
+
+    // bool retval = data_.erase(key);
+
     // new approach:
     // keep writing to the db file
 
     std::ofstream file;
 
     // only update the db file if the key is deleted
-    if (retval) {
-        try {
-            file.open(
-                path_,
-                std::ios::app
-            );
+    try {
+        file.open(
+            path_,
+            std::ios::app
+        );
 
-            // assumption: empty value means the key is deleted
-            file << key << "\n";
-            file << "" << "\n";
+        // assumption: empty value means the key is deleted
+        file << key << "\n";
+        file << "" << "\n";
 
-            file.close();
-        } catch (const std::ios_base::failure &error) {
-            throw std::runtime_error {
-                "Could not write database file: " + path_.string()
-            };
-        }
+        file.close();
+    } catch (const std::ios_base::failure &error) {
+        throw std::runtime_error {
+            "Could not write database file: " + path_.string()
+        };
     }
 
-    return retval;
+
+    return 1;
 }
 
 }
