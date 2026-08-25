@@ -11,19 +11,41 @@
 
 namespace {
 
-using base64 = cppcodec::base64_rfc4648;
-
-inline std::string encode_base64(const std::string& input)
+void write_string(std::ofstream& file, const std::string& s)
 {
-    return base64::encode(input);
+    const std::uint32_t length = static_cast<std::uint32_t>(s.size());
+    file.write(
+        reinterpret_cast<const char*>(&length),
+        sizeof(length)
+    );
+    file.write(
+        s.data(),
+        static_cast<std::streamsize>(s.size())
+    );
 }
 
-inline std::string decode_base64(const std::string& input)
+bool read_string(std::ifstream& file, std::string& result)
 {
-    return base64::decode<std::string>(input);
+    std::uint32_t length = {};
+    if (!file.read(
+            reinterpret_cast<char*>(&length),
+            sizeof(length))) {
+        return false;
+    }
+
+    result.resize(length);
+
+    if (!file.read(
+            result.data(),
+            static_cast<std::streamsize>(length))) {
+        return false;
+    }
+
+    return true;
+
 }
 
-} // namespace
+}// namespace
 
 namespace zidanedb {
 
@@ -40,26 +62,25 @@ Database::Database(std::filesystem::path path)
     // remember: After std::move(x), don’t read the old value of x;
     // destroy it or assign a new value to it.
     // So don't use `path` here, use `path_`
-    std::ifstream file{path_};
+    std::ifstream file{
+        path_,
+        std::ios::binary
+    };
     if (!file) {
         std::cerr << "Could not open the file\n";
         return;
     }
 
-    int line_num = 0;
-    std::string line;
     std::string key, value;
-    while (std::getline(file, line)) {
-        if (line_num % 2 == 0) {
-            key = line;
-        } else {
-            value = line;
-            if (!value.empty())
-                data_[key] = decode_base64(value);
-            else
-                data_.erase(key);
+    while (read_string(file, key)) {
+        if (!read_string(file, value)) {
+            std::cerr << "Incomplete database record\n";
+            break;
         }
-        line_num++;
+        if (!value.empty())
+            data_[key] = value;
+        else
+            data_.erase(key);
     }
 }
 
@@ -100,13 +121,13 @@ void Database::put(std::string key, std::string val)
     try {
         file.open(
             path_,
-            std::ios::app
+            std::ios::binary | std::ios::app
         );
 
         // assumption: the last write wins,
         // the last value of the key stays
-        file << k << "\n";
-        file << encode_base64(v) << "\n";
+        write_string(file, k);
+        write_string(file, v);
 
         file.close();
     } catch (const std::ios_base::failure &error) {
@@ -129,12 +150,12 @@ bool Database::erase(const std::string& key)
         try {
             file.open(
                 path_,
-                std::ios::app
+                std::ios::binary | std::ios::app
             );
 
             // assumption: empty value means the key is deleted
-            file << key << "\n";
-            file << "" << "\n";
+            write_string(file, key);
+            write_string(file, "");
 
             file.close();
         } catch (const std::ios_base::failure &error) {

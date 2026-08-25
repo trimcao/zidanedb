@@ -121,4 +121,368 @@ DISK-RESIDENT INDEX
 B+ tree becomes naturally motivated
 ```
 
-## Binary Mode for Files
+## Current Tasks
+
+### Binary Mode for Files
+The motivation for binary mode:
+- No text-mode translation. For example, on Windows, `\n` can be translated to `\r\n`.
+- Do not need to use base64 encoding to handle multi-line key/value anymore.
+
+
+## Appendix
+
+### Opening, Reading, and Writing Files in Binary Mode
+
+Binary mode is useful when a file should contain exactly the bytes that the program writes, without
+treating characters such as newlines specially. For a database, this allows keys and values to
+contain newlines, `\0` bytes, or other arbitrary data without Base64 encoding.
+
+To replace a file and write it in binary mode:
+
+```cpp
+std::ofstream file{
+    path,
+    std::ios::binary | std::ios::trunc
+};
+```
+
+To append to a binary file:
+
+```cpp
+std::ofstream file{
+    path,
+    std::ios::binary | std::ios::app
+};
+```
+
+To read a binary file:
+
+```cpp
+std::ifstream file{
+    path,
+    std::ios::binary
+};
+```
+
+The flags mean:
+
+- `std::ios::binary` disables text-mode translation.
+- `std::ios::app` places every write at the end of the file.
+- `std::ios::trunc` replaces the existing contents with an empty file.
+
+On Linux and macOS, text and binary modes usually behave the same. On Windows, text mode can
+translate `\n` into the two bytes `\r\n`; binary mode prevents that translation.
+
+#### Writing Bytes
+
+Use `write()` to write a specific number of bytes:
+
+```cpp
+std::string value{"line1\nline2"};
+
+file.write(
+    value.data(),
+    static_cast<std::streamsize>(value.size())
+);
+
+if (!file) {
+    std::cerr << "Write failed\n";
+}
+```
+
+This writes the string's bytes exactly, but the file does not automatically record where the string
+ends. A simple solution is to write the string's length before its contents:
+
+```cpp
+#include <cstdint>
+#include <fstream>
+#include <string>
+
+void write_string(std::ofstream& file, const std::string& value)
+{
+    const std::uint32_t length =
+        static_cast<std::uint32_t>(value.size());
+
+    file.write(
+        reinterpret_cast<const char*>(&length),
+        sizeof(length)
+    );
+
+    file.write(
+        value.data(),
+        static_cast<std::streamsize>(value.size())
+    );
+}
+```
+
+A key-value record can then be written as:
+
+```cpp
+write_string(file, key);
+write_string(file, value);
+```
+
+The resulting layout is:
+
+```text
+[key length][key bytes][value length][value bytes]
+```
+
+Because the lengths are stored explicitly, keys and values may contain newlines.
+
+#### Reading Bytes
+
+To read a string, first read its length and then read exactly that many bytes:
+
+```cpp
+bool read_string(std::ifstream& file, std::string& result)
+{
+    std::uint32_t length{};
+
+    if (!file.read(
+            reinterpret_cast<char*>(&length),
+            sizeof(length))) {
+        return false;
+    }
+
+    result.resize(length);
+
+    if (!file.read(
+            result.data(),
+            static_cast<std::streamsize>(length))) {
+        return false;
+    }
+
+    return true;
+}
+```
+
+A sequence of key-value records can then be read with:
+
+```cpp
+std::string key;
+std::string value;
+
+while (read_string(file, key)) {
+    if (!read_string(file, value)) {
+        std::cerr << "Incomplete database record\n";
+        break;
+    }
+
+    // Process key and value.
+}
+```
+
+`std::ios::binary` does not automatically serialize C++ objects. It only controls how the stream
+interacts with the file. The program must still define its own file format.
+
+For example, do not write the `std::string` object itself:
+
+```cpp
+// Do not do this.
+file.write(
+    reinterpret_cast<const char*>(&value),
+    sizeof(value)
+);
+```
+
+A `std::string` object contains internal bookkeeping and possibly a pointer, not just its character
+data. The length-prefix approach is a reasonable format for learning. A more durable format would
+eventually define its byte order, maximum record sizes, format version, and corruption detection.
+
+### `std::streamsize`
+
+`std::streamsize` is a signed integer type used by C++ streams to represent a number of characters
+or bytes.
+
+For example, `write()` is approximately declared as:
+
+```cpp
+std::ostream& write(
+    const char* data,
+    std::streamsize count
+);
+```
+
+Therefore, this code:
+
+```cpp
+file.write(
+    value.data(),
+    static_cast<std::streamsize>(value.size())
+);
+```
+
+means: "Write `value.size()` bytes starting at `value.data()`."
+
+The cast is needed because `value.size()` returns `std::size_t`, an unsigned size type, while
+`write()` expects `std::streamsize`, a signed stream-size type. The precise underlying integer type
+used for `std::streamsize` depends on the C++ implementation, but it is commonly similar to `long`
+or `long long`.
+
+`std::streamsize` describes an amount of data, not a location in a file. Related stream types
+include:
+
+- `std::streamsize`: a number of bytes or characters.
+- `std::streamoff`: a distance between file positions.
+- `std::streampos`: a specific position in a file.
+
+For ordinary strings, the conversion can be written as:
+
+```cpp
+const auto count =
+    static_cast<std::streamsize>(value.size());
+
+file.write(value.data(), count);
+```
+
+For extremely large data, production code should first verify that `value.size()` fits inside
+`std::streamsize` before performing the cast.
+
+### `static_cast` and `reinterpret_cast`
+
+C++ casts use this general form:
+
+```cpp
+cast_name<TargetType>(expression)
+```
+
+They explicitly tell the compiler to convert an expression to another type, or to view it as
+another type.
+
+#### `static_cast`
+
+Use `static_cast` for ordinary conversions that the compiler understands:
+
+```cpp
+double price = 12.75;
+int whole = static_cast<int>(price); // 12
+```
+
+In the binary-writing example:
+
+```cpp
+file.write(
+    value.data(),
+    static_cast<std::streamsize>(value.size())
+);
+```
+
+`value.size()` returns `std::size_t`, while `write()` expects `std::streamsize`. The cast makes
+that integer conversion explicit.
+
+Likewise:
+
+```cpp
+std::uint32_t length =
+    static_cast<std::uint32_t>(value.size());
+```
+
+This converts the string length to `std::uint32_t`. Care is required because information can be
+lost if the original value is too large for the destination type.
+
+Think of `static_cast` as: "Perform a normal type conversion that the compiler understands."
+
+#### `reinterpret_cast`
+
+`reinterpret_cast` is a lower-level operation. It generally does not convert the underlying data.
+Instead, it tells the compiler to view the same memory through a different type.
+
+For example:
+
+```cpp
+std::uint32_t length = 42;
+
+file.write(
+    reinterpret_cast<const char*>(&length),
+    sizeof(length)
+);
+```
+
+`&length` has the type `std::uint32_t*`, but `std::ostream::write()` expects a `const char*` pointing
+to bytes. The cast means: "Take the address of `length` and view that address as a pointer to its
+individual bytes."
+
+The integer is not converted into the text `"42"`. Its raw memory bytes are written directly.
+
+Reading uses the same idea in the opposite direction:
+
+```cpp
+std::uint32_t length{};
+
+file.read(
+    reinterpret_cast<char*>(&length),
+    sizeof(length)
+);
+```
+
+Here, `read()` places bytes from the file into the memory occupied by `length`. C++ specifically
+allows an object's raw bytes to be accessed through `char*` or `const char*`.
+
+A `static_cast` cannot be used here because `std::uint32_t*` and `const char*` are unrelated pointer
+types. Changing how an address is interpreted requires `reinterpret_cast`.
+
+##### Why `read()` Needs a `char*`
+
+Consider this code:
+
+```cpp
+std::uint32_t length{};
+
+if (!file.read(
+        reinterpret_cast<char*>(&length),
+        sizeof(length))) {
+    return false;
+}
+```
+
+`length` is already a `std::uint32_t`, so `&length` already has the type `std::uint32_t*`. However,
+`file.read()` does not accept a `std::uint32_t*`; its declaration is approximately:
+
+```cpp
+std::istream& read(
+    char* destination,
+    std::streamsize byte_count
+);
+```
+
+The stream works with raw bytes, so it requires a `char*`. This expression:
+
+```cpp
+reinterpret_cast<char*>(&length)
+```
+
+means: "Treat the address of `length` as the address of its first byte." Then `sizeof(length)` tells
+`read()` how many bytes to copy into the memory occupied by `length`, normally four bytes for a
+`std::uint32_t`.
+
+Using `reinterpret_cast<std::uint32_t*>(&length)` would not help because the result would still be a
+`std::uint32_t*`, while `read()` requires a `char*`.
+
+Reading uses `char*` because `read()` modifies the destination memory. Writing instead uses
+`const char*`:
+
+```cpp
+reinterpret_cast<const char*>(&length)
+```
+
+This is because `write()` only examines the source memory and does not modify it.
+
+Finally, `read()` returns the stream itself. Applying `!` to that result checks the stream state:
+
+```cpp
+if (!file.read(...)) {
+    return false;
+}
+```
+
+The condition is entered if all the requested bytes could not be read, such as when the stream
+reaches the end of the file or encounters an incomplete record.
+
+In summary:
+
+- Use `static_cast<T>(value)` for ordinary, intentional type conversions.
+- Use `reinterpret_cast<T>(value)` for deliberate low-level operations involving memory and pointer
+  representations.
+- Prefer `static_cast` when possible. Use `reinterpret_cast` carefully because it is easier to
+  misuse.

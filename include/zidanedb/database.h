@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <filesystem>
 #include <optional>
+#include <cstdint>
 
 namespace zidanedb {
 
@@ -12,6 +13,7 @@ class Database {
 private:
     std::filesystem::path path_; // for persistence
     std::unordered_map<std::string, std::string> data_;
+    std::unordered_map<std::string, uint64_t> index_;
 
 public:
     explicit Database(std::filesystem::path path);

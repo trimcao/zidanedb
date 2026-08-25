@@ -72,7 +72,6 @@ int main(int argc, char** argv)
         zidanedb::Database db {path};
 
         if (*put_command) {
-            // std::cout << std::format("Put {}={} to {}\n", put_key, put_value, database_path);
             return zidanedb::cli::run_put(
                 db,
                 std::move(put_key),
@@ -80,14 +79,12 @@ int main(int argc, char** argv)
                 std::cout);
         }
         if (*get_command) {
-            // std::cout << std::format("Get {} from {}\n", get_key, database_path);
             return zidanedb::cli::run_get(
                 db,
                 get_key,
                 std::cout, std::cerr);
         }
         if (*delete_command) {
-            // std::cout << std::format("Delete {} from {}\n", delete_key, database_path);
             return zidanedb::cli::run_delete(
                 db,
                 delete_key,
