@@ -52,3 +52,29 @@ optimization. Anyway, `get` will be the main focus for our next step.
 One question though: how does a normal storage engine interact with users?
 Do we need to optimize for the use case of separate cli requests?
 Or should the database always run as a background service?
+
+## `Without-unordered_map` Benchmarks
+
+```
+./build/matrix perf-basic --pairs 10000
+Database file: "/var/folders/2z/bttptg2d17d0w39r921_h2200000gp/T/matrix-performance.zdb"
+Pairs:        10000
+Put time:     20.2878 seconds
+Put rate:     492.906 ops/second
+Load time:    2.417e-06 seconds
+Verify time:  39.078 seconds
+Get rate:     255.898 ops/second
+File size:    254890 bytes
+```
+
+This is a disaster.
+
+Using `unordered_map` is not a mistake. I just need to understand the
+problem better, and I need to learn what could be a solution.
+
+## Conclusion
+
+This experiment shows that our database still works very well with `unordered_map`.
+We need a way to reduce load time, but we need another way.
+
+The next thing we can try is: Indexing.
