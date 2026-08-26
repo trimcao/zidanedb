@@ -50,49 +50,25 @@ bool read_string(std::ifstream& file, std::string& result)
 
 }
 
-bool read_uint64(std::ifstream& file, uint64_t& result)
-{
-    if (!file.read(
-            reinterpret_cast<char*>(&result),
-            sizeof(uint64_t))) {
-        return false;
-    }
-
-    return true;
-
-}
-
-bool read_uint32(std::ifstream& file, uint32_t& result)
-{
-    if (!file.read(
-            reinterpret_cast<char*>(&result),
-            sizeof(uint32_t))) {
-        return false;
-    }
-
-    return true;
-
-}
-
 }// namespace
 
 namespace zidanedb {
 
 Database::Database(std::filesystem::path path)
 {
-    path_ = std::move(path);
+    db_path_ = std::move(path);
     index_ = std::unordered_map<std::string, uint64_t>{};
 
     // check the path, if it exists, load the data to the map
-    if (!std::filesystem::exists(path_)) {
+    if (!std::filesystem::exists(db_path_)) {
         return;
     }
 
     // remember: After std::move(x), don’t read the old value of x;
     // destroy it or assign a new value to it.
-    // So don't use `path` here, use `path_`
+    // So don't use `path` here, use `db_path_`
     std::ifstream file{
-        path_,
+        db_path_,
         std::ios::binary
     };
     if (!file) {
@@ -126,7 +102,7 @@ Database::get(const std::string& key) const
 
     // read the value from the db file
     std::ifstream file{
-        path_,
+        db_path_,
         std::ios::binary
     };
     if (!file) {
@@ -156,7 +132,7 @@ void Database::put(std::string key, std::string val)
     // new approach: keep writing to the db file
     try {
         file.open(
-            path_,
+            db_path_,
             std::ios::binary | std::ios::app
         );
 
@@ -169,7 +145,7 @@ void Database::put(std::string key, std::string val)
         file.close();
     } catch (const std::ios_base::failure &error) {
         throw std::runtime_error {
-            "Could not write database file: " + path_.string()
+            "Could not write database file: " + db_path_.string()
         };
     }
 }
@@ -186,7 +162,7 @@ bool Database::erase(const std::string& key)
     if (retval) {
         try {
             file.open(
-                path_,
+                db_path_,
                 std::ios::binary | std::ios::app
             );
 
@@ -197,7 +173,7 @@ bool Database::erase(const std::string& key)
             file.close();
         } catch (const std::ios_base::failure &error) {
             throw std::runtime_error {
-                "Could not write database file: " + path_.string()
+                "Could not write database file: " + db_path_.string()
             };
         }
     }

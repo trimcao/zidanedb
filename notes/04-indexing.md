@@ -150,6 +150,26 @@ puts, then the index file will have only 10000 entries, not 10,000,000.
 
 Implementation notes:
 - First, I need to learn how to work with offsets.
+- The first indexing scheme is very simple: no persistent index yet, at startup,
+read the whole db file and construct a map of key-value_offset.
+
+
+### Matrix New Tests
+Following the motivation of indexing above, we will create two new workloads for
+Matrix:
+- One workload with large values.
+- One workload that is overwrite-heavy
+
+### Persistent Index
+I was a little confused when implementing the first basic indexing scheme above.
+I was thinking about a persistent index, but the first indexing implementation
+is just building an index from the whole db. Not very interesting yet, but at
+least I learned about the file offsets, how to do `get` when given an offset,
+and what an offset means in this context. All pretty important stuffs.
+
+Now it's time to think about a persistent index.
+
+Implementation notes:
 - The index format is probably: [key-length][key][value-offset].
 - How do we update the index? The map will store the latest index that we have.
 We can either: (1) write the whole index from scratch when quit, or (2) search
@@ -161,12 +181,11 @@ to learn how to navigate the index file.
 an existing key, and when we delete a key.
 - Let's assume offset = 0 means the key has been deleted or the key has no value.
 
-
-### Matrix New Tests
-Following the motivation of indexing above, we will create two new workloads for
-Matrix:
-- One workload with large values.
-- One workload that is overwrite-heavy
+## What's Next
+The next challenge will be: how to avoid reading the db file from scratch?
+Definitely we can have checkpoint and continue reading from that checkpoint.
+Potentially our storage engine will be super fast compared to the current
+implementation.
 
 
 ## Appendix

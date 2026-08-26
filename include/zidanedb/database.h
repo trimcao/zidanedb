@@ -11,7 +11,8 @@ namespace zidanedb {
 
 class Database {
 private:
-    std::filesystem::path path_; // for persistence
+    std::filesystem::path db_path_;
+    std::filesystem::path idx_path_;
     // std::unordered_map<std::string, std::string> data_;
     std::unordered_map<std::string, uint64_t> index_;
 
