@@ -1,5 +1,7 @@
 #include "zidanedb/database.h"
+#include <cstdint>
 #include <iostream>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 #include <filesystem>
@@ -33,11 +35,38 @@ bool read_string(std::ifstream& file, std::string& result)
         return false;
     }
 
+    // assume that length == 0 means the key is deleted
+    if (length == 0) return false;
+
     result.resize(length);
 
     if (!file.read(
             result.data(),
             static_cast<std::streamsize>(length))) {
+        return false;
+    }
+
+    return true;
+
+}
+
+bool read_uint64(std::ifstream& file, uint64_t& result)
+{
+    if (!file.read(
+            reinterpret_cast<char*>(&result),
+            sizeof(uint64_t))) {
+        return false;
+    }
+
+    return true;
+
+}
+
+bool read_uint32(std::ifstream& file, uint32_t& result)
+{
+    if (!file.read(
+            reinterpret_cast<char*>(&result),
+            sizeof(uint32_t))) {
         return false;
     }
 
@@ -52,7 +81,7 @@ namespace zidanedb {
 Database::Database(std::filesystem::path path)
 {
     path_ = std::move(path);
-    data_ = std::unordered_map<std::string, std::string>{};
+    index_ = std::unordered_map<std::string, uint64_t>{};
 
     // check the path, if it exists, load the data to the map
     if (!std::filesystem::exists(path_)) {
@@ -72,48 +101,55 @@ Database::Database(std::filesystem::path path)
     }
 
     std::string key, value;
+    uint64_t offset;
     while (read_string(file, key)) {
+        // save the val offset to the index
+        offset = file.tellg();
+        // TODO: check tellg error?
+        index_[key] = offset;
         if (!read_string(file, value)) {
             std::cerr << "Incomplete database record\n";
             break;
         }
-        if (!value.empty())
-            data_[key] = value;
-        else
-            data_.erase(key);
     }
 }
 
 std::optional<std::string>
 Database::get(const std::string& key) const
 {
-    auto it = data_.find(key);
-    if (it == data_.end()) {
+    std::string val;
+
+    auto offset = index_.find(key);
+    if (offset == index_.end() || offset->second == 0) {
         return std::nullopt;
     }
 
-    return it->second;
+    // read the value from the db file
+    std::ifstream file{
+        path_,
+        std::ios::binary
+    };
+    if (!file) {
+        std::cerr << "Could not open the file\n";
+        return std::nullopt;
+    }
+    file.seekg(offset->second, std::ios::beg);
+    if (!file) {
+        std::cerr << "Seek failed\n";
+        return std::nullopt;
+    }
+
+    // try to read the val
+    if(!read_string(file, val)) {
+        return std::nullopt;
+    }
+
+    return val;
 }
 
 void Database::put(std::string key, std::string val)
 {
-    // check if we actually need to put
-    auto cur_val = get(key);
-    if (cur_val == val) {
-        return;
-    }
-
-    // note about std::move():
-    // std::move() gives permission to transfer resources from an object because
-    // its current value is no longer needed.
-    // std::move() itself does not perform the transfer. It marks the object as movable;
-    // the receiving constructor or function decides what happens.
-    std::string k = key;
-    std::string v = val;
-    data_.insert_or_assign(std::move(key), std::move(val));
-
-    // one lesson: after doing std::move(key), the variable key does not contain
-    // any data anymore.
+    // assume that we will keep appending even if new_val == current_val
 
     std::ofstream file;
 
@@ -126,8 +162,9 @@ void Database::put(std::string key, std::string val)
 
         // assumption: the last write wins,
         // the last value of the key stays
-        write_string(file, k);
-        write_string(file, v);
+        write_string(file, key);
+        index_.insert_or_assign(key, file.tellp());
+        write_string(file, val);
 
         file.close();
     } catch (const std::ios_base::failure &error) {
@@ -139,7 +176,7 @@ void Database::put(std::string key, std::string val)
 
 bool Database::erase(const std::string& key)
 {
-    bool retval = data_.erase(key);
+    bool retval = index_.erase(key);
     // new approach:
     // keep writing to the db file
 

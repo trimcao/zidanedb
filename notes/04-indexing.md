@@ -128,6 +128,46 @@ The motivation for binary mode:
 - No text-mode translation. For example, on Windows, `\n` can be translated to `\r\n`.
 - Do not need to use base64 encoding to handle multi-line key/value anymore.
 
+Resolution: Done
+
+Effect:
+
+- PUT time increases, probably because we need to write 2 things for each string,
+the length and the bytes.
+- LOAD time decreases, probably because loading and reading a binary file is faster
+than a text file.
+
+### Naive Indexing
+Instead of building the whole key-value map, we only build the key-value index.
+The map type will be `unordered_map<std::string,uint64_t>`.
+
+The motivation is to separate indexing from the full database. It will solve a
+few problems:
+- Suppose we have one workload with large values. Indexing will help us reduce
+the amount of used memory significantly.
+- If we have an overwrite-heavy workload, i.e. 10000 entries but with 10,000,000
+puts, then the index file will have only 10000 entries, not 10,000,000.
+
+Implementation notes:
+- First, I need to learn how to work with offsets.
+- The index format is probably: [key-length][key][value-offset].
+- How do we update the index? The map will store the latest index that we have.
+We can either: (1) write the whole index from scratch when quit, or (2) search
+for the key in the index and update the offset.
+- I am leaning towards (2) because it's the more interesting challenge.
+The performance will be shit either way, so it's probably more educational
+to learn how to navigate the index file.
+- One small note: take care of the cases when we have a new key, when we update
+an existing key, and when we delete a key.
+- Let's assume offset = 0 means the key has been deleted or the key has no value.
+
+
+### Matrix New Tests
+Following the motivation of indexing above, we will create two new workloads for
+Matrix:
+- One workload with large values.
+- One workload that is overwrite-heavy
+
 
 ## Appendix
 
