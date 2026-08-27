@@ -183,6 +183,45 @@ to learn how to navigate the index file.
 an existing key, and when we delete a key.
 - Let's assume offset = 0 means the key has been deleted or the key has no value.
 
+Here is the current performance after implenting a persistent index:
+```
+./build/matrix perf-basic --pairs 10000
+Database file: "/var/folders/2z/bttptg2d17d0w39r921_h2200000gp/T/matrix-performance.zdb"
+Pairs:        10000
+Put time:     2.9613 seconds
+Put rate:     3376.89 ops/second
+Load time:    0.00210379 seconds
+Verify time:  0.136157 seconds
+Get rate:     73444.5 ops/second
+File size:    257780 bytes
+```
+
+`PUT` rate is definitely not great. We need to do many things for a PUT op. It's ok for now.
+
+### Using `fstream` instead of `ifstream` and `ofstream`
+To be able to have full control of the db file and the index file, it's better to use
+`fstream`.
+Let's see if using `fstream` helps us improve the performance of PUT ops.
+
+Notes:
+- The interfaces for IO stream include: `istream`, `ostream` and `iostream`.
+- `fstream` supports both `istream` and `ostream`.
+- We can create helper methods that accept `istream` and `ostream`, then
+we can pass `fstream` object into those methods.
+
+The performance for PUT marginally improves
+```
+./build/matrix perf-basic --pairs 10000
+Database file: "/var/folders/2z/bttptg2d17d0w39r921_h2200000gp/T/matrix-performance.zdb"
+Pairs:        10000
+Put time:     2.65331 seconds
+Put rate:     3768.88 ops/second
+Load time:    0.00205233 seconds
+Verify time:  0.133622 seconds
+Get rate:     74837.9 ops/second
+File size:    257780 bytes
+```
+
 ## What's Next
 The next challenge will be: how to avoid reading the db file from scratch?
 Definitely we can have checkpoint and continue reading from that checkpoint.
@@ -350,6 +389,282 @@ file.write(
 A `std::string` object contains internal bookkeeping and possibly a pointer, not just its character
 data. The length-prefix approach is a reasonable format for learning. A more durable format would
 eventually define its byte order, maximum record sizes, format version, and corruption detection.
+
+### Using `std::fstream` for Both Reading and Writing
+
+`std::fstream` supports reading and writing through the same stream object:
+
+```cpp
+#include <fstream>
+
+std::fstream file{
+    path,
+    std::ios::in |
+    std::ios::out |
+    std::ios::binary
+};
+```
+
+The flags mean:
+
+- `std::ios::in` allows reading.
+- `std::ios::out` allows writing.
+- `std::ios::binary` performs binary I/O without text translation.
+
+One important detail is that opening an `std::fstream` with `in | out` normally requires the file
+to already exist.
+
+#### Creating the File If It Is Missing
+
+A safe approach is to create a missing file first and then reopen it for both reading and writing:
+
+```cpp
+std::fstream file{
+    path,
+    std::ios::in |
+    std::ios::out |
+    std::ios::binary
+};
+
+if (!file) {
+    std::ofstream create_file{
+        path,
+        std::ios::binary
+    };
+
+    if (!create_file) {
+        throw std::runtime_error{"Could not create database file"};
+    }
+
+    create_file.close();
+
+    file.open(
+        path,
+        std::ios::in |
+        std::ios::out |
+        std::ios::binary
+    );
+
+    if (!file) {
+        throw std::runtime_error{"Could not open database file"};
+    }
+}
+```
+
+Do not add `std::ios::trunc` merely to make a file get created:
+
+```cpp
+// Dangerous for an existing database: this erases its contents.
+std::ios::in | std::ios::out | std::ios::trunc
+```
+
+#### Separate Read and Write Positions
+
+An `std::fstream` maintains two positions:
+
+- The get position controls reading.
+- The put position controls writing.
+
+Use `seekg()` to position the reader:
+
+```cpp
+file.clear();
+file.seekg(offset, std::ios::beg);
+file.read(buffer, byte_count);
+```
+
+Use `seekp()` to position the writer:
+
+```cpp
+file.clear();
+file.seekp(0, std::ios::end);
+file.write(data, byte_count);
+file.flush();
+```
+
+The names can be remembered as:
+
+```text
+seekg -> seek the get/read position
+seekp -> seek the put/write position
+```
+
+#### Why Call `clear()`?
+
+Reading to the end of a file sets the stream's EOF and failure flags. Further seeking or reading
+may fail until those state flags are reset:
+
+```cpp
+file.clear();
+file.seekg(offset);
+```
+
+`clear()` does not erase the file. It only resets the stream's error-state flags.
+
+#### Appending Records
+
+For an append-only log, explicitly move the write position to the end before writing:
+
+```cpp
+file.clear();
+file.seekp(0, std::ios::end);
+
+write_string(file, key);
+write_string(file, value);
+
+file.flush();
+```
+
+Another option is to open with `std::ios::app`:
+
+```cpp
+std::ios::in |
+std::ios::out |
+std::ios::binary |
+std::ios::app
+```
+
+This normally creates the file if it is missing and forces every write to the end. The tradeoff is
+that it cannot overwrite an earlier position, even after calling `seekp()`. Opening without `app`
+and explicitly seeking to the end is more flexible if the database may later update headers,
+metadata, or an index at specific offsets.
+
+#### Limitations of Editing a File
+
+An `fstream` can overwrite existing bytes:
+
+```cpp
+file.seekp(offset);
+file.write(new_data, new_data_size);
+```
+
+However, it cannot directly insert or remove bytes in the middle while automatically shifting all
+the following bytes. If the replacement data has a different size, common approaches include:
+
+- Appending a new record and marking the old record obsolete.
+- Rewriting the contents into a new temporary file.
+- Using fixed-size records or pages.
+- Maintaining offsets and free-space metadata.
+
+For an append-only database, reading with `seekg()` and adding records using `seekp()` is a natural
+use of `std::fstream`.
+
+### Reusing Helpers with Different Stream Types
+
+It is fine to use `std::ifstream`, `std::ofstream`, and `std::fstream` in the same project. A helper
+should generally accept the most general stream interface that provides the capability it needs,
+rather than a particular kind of file stream.
+
+For example, a function that only reads should accept `std::istream&` instead of
+`std::ifstream&`:
+
+```cpp
+bool read_string(std::istream& stream, std::string& result)
+{
+    std::uint32_t length{};
+
+    if (!stream.read(
+            reinterpret_cast<char*>(&length),
+            sizeof(length))) {
+        return false;
+    }
+
+    result.resize(length);
+
+    if (!stream.read(
+            result.data(),
+            static_cast<std::streamsize>(length))) {
+        return false;
+    }
+
+    return true;
+}
+```
+
+Both `std::ifstream` and `std::fstream` provide the `std::istream` interface, so either one can be
+passed to this function:
+
+```cpp
+std::ifstream input_file{path, std::ios::binary};
+std::fstream database_file{
+    path,
+    std::ios::in | std::ios::out | std::ios::binary
+};
+
+std::string value;
+
+read_string(input_file, value);
+read_string(database_file, value);
+```
+
+Similarly, a helper that only writes should accept `std::ostream&`:
+
+```cpp
+void write_string(
+    std::ostream& stream,
+    const std::string& value)
+{
+    const auto length =
+        static_cast<std::uint32_t>(value.size());
+
+    stream.write(
+        reinterpret_cast<const char*>(&length),
+        sizeof(length)
+    );
+
+    stream.write(
+        value.data(),
+        static_cast<std::streamsize>(value.size())
+    );
+}
+```
+
+This function accepts either an `std::ofstream` or an `std::fstream`:
+
+```cpp
+write_string(output_file, value);
+write_string(database_file, value);
+```
+
+The stream hierarchy is approximately:
+
+```text
+          std::istream   std::ostream
+                 \       /
+                  \     /
+                 std::iostream
+                       ^
+                  std::fstream
+```
+
+`std::fstream` derives from `std::iostream`, which combines the input and output stream interfaces.
+Consequently, the same `std::fstream` object can be passed to a function expecting either an
+`std::istream&` or an `std::ostream&`:
+
+```cpp
+std::fstream file{
+    path,
+    std::ios::in |
+    std::ios::out |
+    std::ios::binary
+};
+
+std::string value;
+
+read_string(file, value);   // fstream used as an istream
+write_string(file, value);  // fstream used as an ostream
+```
+
+A useful general rule is:
+
+- A function that only reads should accept `std::istream&`.
+- A function that only writes should accept `std::ostream&`.
+- A function that genuinely needs to read and write can accept `std::iostream&`.
+- Use `std::ifstream`, `std::ofstream`, or `std::fstream` when opening a particular file.
+
+Using the general interfaces also makes helpers easier to test with `std::stringstream`, without
+creating a real file. When one `std::fstream` is used for both operations, remember to manage its
+read and write positions with `seekg()` and `seekp()`.
 
 ### `std::streamsize`
 
