@@ -31,12 +31,6 @@ int main(int argc, char** argv)
         "Path to the database"
     )->required();
 
-    app.add_option(
-        "-i,--idx",
-        index_path,
-        "Path to the index"
-    )->required();
-
     std::string put_key;
     std::string put_value;
     auto* put_command =
@@ -74,10 +68,9 @@ int main(int argc, char** argv)
 
     // build the database
     std::filesystem::path path {database_path};
-    std::filesystem::path idx_path {index_path};
 
     try {
-        zidanedb::Database db {path, idx_path};
+        zidanedb::Database db {path};
 
         if (*put_command) {
             return zidanedb::cli::run_put(

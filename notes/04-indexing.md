@@ -127,6 +127,8 @@ B+ tree becomes naturally motivated
 The motivation for binary mode:
 - No text-mode translation. For example, on Windows, `\n` can be translated to `\r\n`.
 - Do not need to use base64 encoding to handle multi-line key/value anymore.
+- We have total control over the file format, so we can work with offsets properly.
+Indexing becomes easier to create.
 
 Resolution: Done
 

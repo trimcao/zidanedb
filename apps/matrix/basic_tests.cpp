@@ -15,10 +15,6 @@ int run_basic() {
         std::filesystem::temp_directory_path() /
         "zidanedb-matrix-test.zdb";
 
-    const std::filesystem::path idx_path =
-        std::filesystem::temp_directory_path() /
-        "zidanedb-matrix-test.zidx";
-
     std::filesystem::remove(path);
 
     // A fixed seed makes failure reproducible
@@ -27,7 +23,7 @@ int run_basic() {
     std::unordered_map<std::string, std::string> expected;
 
     {
-        zidanedb::Database database{path, idx_path};
+        zidanedb::Database database{path};
         for (std::size_t index = 0; index < pair_count; ++index) {
             // The index guarantees that every key is unique
             std::string key =
@@ -52,7 +48,7 @@ int run_basic() {
     } // Destroy the writing database
 
     {
-        const zidanedb::Database database{path, idx_path};
+        const zidanedb::Database database{path};
 
         for (const auto& [key, expected_value] : expected) {
             const auto actual_value = database.get(key);
@@ -109,7 +105,7 @@ int run_perf_basic(std::size_t pair_count) {
     Seconds put_duration;
 
     {
-        zidanedb::Database database{path, idx_path};
+        zidanedb::Database database{path};
 
         const auto start = Clock::now();
 
@@ -122,7 +118,7 @@ int run_perf_basic(std::size_t pair_count) {
     } // Destroy the first database
 
     const auto load_start = Clock::now();
-    const zidanedb::Database reopened{path, idx_path};
+    const zidanedb::Database reopened{path};
     const auto load_end = Clock::now();
 
     const Seconds load_duration = load_end - load_start;

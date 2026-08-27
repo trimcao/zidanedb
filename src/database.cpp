@@ -73,12 +73,12 @@ void write_uint64(std::ofstream& file, const uint64_t n)
 
 namespace zidanedb {
 
-Database::Database(
-    std::filesystem::path path,
-    std::filesystem::path idx_path)
+Database::Database(std::filesystem::path path)
 {
     db_path_ = std::move(path);
-    idx_path_ = std::move(idx_path);
+    idx_path_ = db_path_;
+    idx_path_.replace_extension(".zidx");
+
     index_ = std::unordered_map<std::string, uint64_t>{};
 
     // Note: we load the index file now, not the db file
