@@ -17,13 +17,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(CLI11)
 
-FetchContent_Declare(
-    cppcodec
-    GIT_REPOSITORY https://github.com/tplgy/cppcodec.git
-    GIT_TAG        8019b8b580f8573c33c50372baec7039dfe5a8ce
-)
-FetchContent_MakeAvailable(cppcodec)
-
 add_library(zidanedb
     src/database.cpp
     include/zidanedb/database.h
@@ -40,11 +33,6 @@ target_include_directories(zidanedb
 target_compile_features(zidanedb
     PUBLIC
         cxx_std_20
-)
-
-target_link_libraries(zidanedb
-    PRIVATE
-        cppcodec
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

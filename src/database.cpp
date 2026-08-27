@@ -1,5 +1,4 @@
 #include "zidanedb/database.h"
-#include <cppcodec/base64_rfc4648.hpp>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -38,15 +37,15 @@ bool read_string(std::istream& stream, std::string& result) {
     return true;
 }
 
-bool read_uint64(std::istream& stream, uint64_t& result) {
-    if (!stream.read(reinterpret_cast<char*>(&result), sizeof(uint64_t))) {
+bool read_uint64(std::istream& stream, std::uint64_t& result) {
+    if (!stream.read(reinterpret_cast<char*>(&result), sizeof(std::uint64_t))) {
         return false;
     }
 
     return true;
 }
 
-void write_uint64(std::ostream& stream, const uint64_t n) {
+void write_uint64(std::ostream& stream, const std::uint64_t n) {
     stream.write(reinterpret_cast<const char*>(&n), sizeof(n));
 }
 
@@ -59,7 +58,7 @@ Database::Database(std::filesystem::path path) {
     idx_path_ = db_path_;
     idx_path_.replace_extension(".zidx");
 
-    index_ = std::unordered_map<std::string, uint64_t>{};
+    index_ = std::unordered_map<std::string, std::uint64_t>{};
 
     // Note: we load the index file now, not the db file
     // check if the file exists
@@ -74,7 +73,7 @@ Database::Database(std::filesystem::path path) {
     }
 
     std::string key;
-    uint64_t offset;
+    std::uint64_t offset;
     while (read_string(file, key)) {
         if (!read_uint64(file, offset)) {
             std::cerr << "Incomplete database record\n";
@@ -118,18 +117,24 @@ void Database::put(std::string key, std::string val) {
     // assume that we will keep appending even if new_val == current_val
 
     std::ofstream file;
-    uint64_t db_offset;
+    std::uint64_t db_offset;
 
     // new approach: keep writing to the db file
     try {
         file.open(db_path_, std::ios::binary | std::ios::app);
+        file.exceptions(std::ios::failbit | std::ios::badbit);
 
         // assumption: the last write wins,
         // the last value of the key stays
         write_string(file, key);
-        db_offset = file.tellp();
-        write_string(file, val);
+        const auto position = file.tellp();
+        if (position == std::ostream::pos_type(-1)) {
+            throw std::runtime_error{"tellp() failed"};
+        }
 
+        db_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(position));
+        write_string(file, val);
+        file.flush();
     } catch (const std::ios_base::failure& error) {
         throw std::runtime_error{"Could not write database file: " + db_path_.string()};
     }
@@ -147,12 +152,15 @@ void Database::put(std::string key, std::string val) {
     // - find the index of the given key in the index file.
     // - if not found, append the a new index entry.
     // - if found, edit the offset value for that key.
-    uint64_t idx_offset = UINT64_MAX;
+    std::uint64_t idx_offset = UINT64_MAX;
     try {
         std::fstream idxfile{idx_path_, std::ios::in | std::ios::out | std::ios::binary};
+        if (!idxfile) {
+            throw std::runtime_error{"Could not open index file: " + idx_path_.string()};
+        }
 
         std::string k;
-        uint64_t offset;
+        std::uint64_t offset;
         while (read_string(idxfile, k)) {
             if (key == k) {
                 idx_offset = idxfile.tellg();
@@ -164,6 +172,9 @@ void Database::put(std::string key, std::string val) {
             }
         }
 
+        idxfile.clear();
+
+        idxfile.exceptions(std::ios::failbit | std::ios::badbit);
         if (idx_offset == UINT64_MAX) {
             idxfile.seekp(0, std::ios::end);
             write_string(idxfile, key);
@@ -171,9 +182,10 @@ void Database::put(std::string key, std::string val) {
             idxfile.seekp(idx_offset, std::ios::beg);
         }
         write_uint64(idxfile, db_offset);
+        idxfile.flush();
 
     } catch (const std::ios_base::failure& error) {
-        throw std::runtime_error{"Could not read index file: " + idx_path_.string()};
+        throw std::runtime_error{"Could not update index file: " + idx_path_.string()};
     }
 }
 
@@ -188,50 +200,50 @@ bool Database::erase(const std::string& key) {
     if (retval) {
         try {
             file.open(db_path_, std::ios::binary | std::ios::app);
+            file.exceptions(std::ios::failbit | std::ios::badbit);
 
             // assumption: empty value means the key is deleted
             write_string(file, key);
             write_string(file, "");
+            file.flush();
 
         } catch (const std::ios_base::failure& error) {
             throw std::runtime_error{"Could not write database file: " + db_path_.string()};
         }
 
         // update index file
-        std::ifstream idx_ifile;
-        std::ofstream idx_ofile;
-        uint64_t idx_offset = UINT64_MAX;
+        std::uint64_t idx_offset = UINT64_MAX;
 
         try {
-            idx_ifile.open(idx_path_, std::ios::binary);
+            std::fstream idxfile{idx_path_, std::ios::in | std::ios::out | std::ios::binary};
+            if (!idxfile) {
+                throw std::runtime_error{"Could not open index file: " + idx_path_.string()};
+            }
 
             std::string k;
-            uint64_t offset;
-            while (read_string(idx_ifile, k)) {
+            std::uint64_t offset;
+            while (read_string(idxfile, k)) {
                 if (key == k) {
-                    idx_offset = idx_ifile.tellg();
+                    idx_offset = idxfile.tellg();
                     break;
                 }
-                if (!read_uint64(idx_ifile, offset)) {
+                if (!read_uint64(idxfile, offset)) {
                     std::cerr << "Incomplete index record\n";
                     break;
                 }
             }
 
-        } catch (const std::ios_base::failure& error) {
-            throw std::runtime_error{"Could not read index file: " + idx_path_.string()};
-        }
+            idxfile.clear();
 
-        try {
-            idx_ofile.open(idx_path_, std::ios::binary | std::ios::in | std::ios::ate);
-
+            idxfile.exceptions(std::ios::failbit | std::ios::badbit);
             if (idx_offset != UINT64_MAX) {
-                idx_ofile.seekp(idx_offset, std::ios::beg);
-                write_uint64(idx_ofile, 0);
+                idxfile.seekp(idx_offset, std::ios::beg);
+                write_uint64(idxfile, 0);
             }
+            idxfile.flush();
 
         } catch (const std::ios_base::failure& error) {
-            throw std::runtime_error{"Could not write index file: " + idx_path_.string()};
+            throw std::runtime_error{"Could not update index file: " + idx_path_.string()};
         }
     }
 

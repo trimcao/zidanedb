@@ -13,7 +13,7 @@ class Database {
   private:
     std::filesystem::path db_path_;
     std::filesystem::path idx_path_;
-    std::unordered_map<std::string, uint64_t> index_;
+    std::unordered_map<std::string, std::uint64_t> index_;
 
   public:
     explicit Database(std::filesystem::path path);

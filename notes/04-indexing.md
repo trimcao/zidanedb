@@ -141,7 +141,7 @@ than a text file.
 
 ### Naive Indexing
 Instead of building the whole key-value map, we only build the key-value index.
-The map type will be `unordered_map<std::string,uint64_t>`.
+The map type will be `unordered_map<std::string,std::uint64_t>`.
 
 The motivation is to separate indexing from the full database. It will solve a
 few problems:

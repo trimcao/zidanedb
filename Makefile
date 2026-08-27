@@ -1,7 +1,7 @@
 BUILD_DIR := build
 RELEASE_BUILD_DIR := build-release
 
-.PHONY: all configure build test clean superclean format format-check
+.PHONY: all configure build test clean superclean format format-check configure-release configure-offline build-offline build-matrix
 
 all: build
 
@@ -15,7 +15,6 @@ configure-release:
 
 configure-offline:
 	cmake -S . -B $(BUILD_DIR) \
-		-G Ninja \
 		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
 		-DFETCHCONTENT_FULLY_DISCONNECTED=ON
 

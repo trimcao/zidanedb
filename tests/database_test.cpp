@@ -23,7 +23,10 @@ class TemporaryDatabaseFile {
     explicit TemporaryDatabaseFile(const std::string& filename)
         : path_{// note: For filesystem paths, / is overloaded
                 // to mean 'join these path components.'
-                std::filesystem::temp_directory_path() / filename} {
+                std::filesystem::temp_directory_path() / filename},
+        idx_path_{path_} {
+
+        idx_path_.replace_extension(".zidx");
         remove();
     }
 
@@ -168,5 +171,32 @@ TEST_CASE("multi-line value should work") {
         const auto multi = database.get("multi");
         REQUIRE(multi.has_value());
         REQUIRE(*multi == "line1\nline2");
+    }
+}
+
+TEST_CASE("a new index entry persists after reopening") {
+    TemporaryDatabaseFile file{"new-index-entry-persistence-test.zdb"};
+
+    REQUIRE_FALSE(std::filesystem::exists(file.path()));
+    REQUIRE_FALSE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database database{file.path()};
+        database.put("new-key", "new-value");
+    }
+
+    REQUIRE(std::filesystem::exists(file.path()));
+    REQUIRE(std::filesystem::exists(file.idx_path()));
+
+    // This assertion directly reveals that nothing was appended.
+    REQUIRE(std::filesystem::file_size(file.idx_path()) > 0);
+
+    {
+        const zidanedb::Database reopened{file.path()};
+
+        const auto result = reopened.get("new-key");
+
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "new-value");
     }
 }

@@ -22,7 +22,6 @@ int main(int argc, char** argv) {
     app.set_version_flag("--version", "ZidaneDB 0.1.0");
 
     std::string database_path;
-    std::string index_path;
 
     app.add_option("-d,--db", database_path, "Path to the database")->required();
 
