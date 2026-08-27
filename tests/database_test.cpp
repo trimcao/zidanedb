@@ -16,43 +16,30 @@ TemporaryDatabaseFile is a small test helper. Its job is:
 4. Delete the test database when the test finishes.
 */
 class TemporaryDatabaseFile {
-public:
+  public:
     // note about the `explicit` keyword:
     // This prevents C++ from automatically converting a string
     // into a TemporaryDatabaseFile.
     explicit TemporaryDatabaseFile(const std::string& filename)
-        : path_{
-            // note: For filesystem paths, / is overloaded
-            // to mean 'join these path components.'
-            std::filesystem::temp_directory_path() / filename
-        }
-    {
+        : path_{// note: For filesystem paths, / is overloaded
+                // to mean 'join these path components.'
+                std::filesystem::temp_directory_path() / filename} {
         remove();
     }
 
-    ~TemporaryDatabaseFile()
-    {
-        remove();
-    }
+    ~TemporaryDatabaseFile() { remove(); }
 
     // note: The trailing const promises that calling path()
     // does not modify the TemporaryDatabaseFile object
-    const std::filesystem::path& path() const
-    {
-        return path_;
-    }
+    const std::filesystem::path& path() const { return path_; }
 
-    const std::filesystem::path& idx_path() const
-    {
-        return idx_path_;
-    }
+    const std::filesystem::path& idx_path() const { return idx_path_; }
 
-private:
+  private:
     std::filesystem::path path_;
     std::filesystem::path idx_path_;
 
-    void remove()
-    {
+    void remove() {
         std::error_code ignored;
         std::filesystem::remove(path_, ignored);
         std::filesystem::remove(idx_path_, ignored);
@@ -61,9 +48,7 @@ private:
 
 } // namespace
 
-
-TEST_CASE("get returns no value for a missing key")
-{
+TEST_CASE("get returns no value for a missing key") {
     TemporaryDatabaseFile file{
         "get-missing-key.zdb",
     };
@@ -72,8 +57,7 @@ TEST_CASE("get returns no value for a missing key")
     REQUIRE_FALSE(result.has_value());
 }
 
-TEST_CASE("put stores a value")
-{
+TEST_CASE("put stores a value") {
     TemporaryDatabaseFile file{
         "put.zdb",
     };
@@ -84,11 +68,8 @@ TEST_CASE("put stores a value")
     REQUIRE(*result == "Bellingham");
 }
 
-TEST_CASE("put replaces an existing value")
-{
-    TemporaryDatabaseFile file{
-        "put-existing.zdb"
-    };
+TEST_CASE("put replaces an existing value") {
+    TemporaryDatabaseFile file{"put-existing.zdb"};
     zidanedb::Database db{file.path()};
     db.put("player", "Bellingham");
     db.put("player", "Ronaldo");
@@ -97,11 +78,8 @@ TEST_CASE("put replaces an existing value")
     REQUIRE(*result == "Ronaldo");
 }
 
-TEST_CASE("erase removes an existing key")
-{
-    TemporaryDatabaseFile file{
-        "erase.zdb"
-    };
+TEST_CASE("erase removes an existing key") {
+    TemporaryDatabaseFile file{"erase.zdb"};
     zidanedb::Database db{file.path()};
     db.put("player", "Bellingham");
     const auto existed = db.erase("player");
@@ -109,20 +87,14 @@ TEST_CASE("erase removes an existing key")
     REQUIRE_FALSE(db.get("player").has_value());
 }
 
-TEST_CASE("erase returns false for a missing key")
-{
-    TemporaryDatabaseFile file{
-        "erase-missing-key.zdb"
-    };
+TEST_CASE("erase returns false for a missing key") {
+    TemporaryDatabaseFile file{"erase-missing-key.zdb"};
     zidanedb::Database db{file.path()};
     REQUIRE_FALSE(db.erase("missing"));
 }
 
-TEST_CASE("put persists values after reopening")
-{
-    TemporaryDatabaseFile file{
-        "zidanedb-put-persistence-test.zdb"
-    };
+TEST_CASE("put persists values after reopening") {
+    TemporaryDatabaseFile file{"zidanedb-put-persistence-test.zdb"};
 
     {
         zidanedb::Database database{file.path()};
@@ -144,11 +116,8 @@ TEST_CASE("put persists values after reopening")
     }
 }
 
-TEST_CASE("replaced values remain replaced after reopening")
-{
-    TemporaryDatabaseFile file{
-        "zidanedb-replace-persistence-test.zdb"
-    };
+TEST_CASE("replaced values remain replaced after reopening") {
+    TemporaryDatabaseFile file{"zidanedb-replace-persistence-test.zdb"};
 
     {
         zidanedb::Database database{file.path()};
@@ -164,11 +133,8 @@ TEST_CASE("replaced values remain replaced after reopening")
     }
 }
 
-TEST_CASE("erased values remain erased after reopening")
-{
-    TemporaryDatabaseFile file{
-        "zidanedb-erase-persistence-test.zdb"
-    };
+TEST_CASE("erased values remain erased after reopening") {
+    TemporaryDatabaseFile file{"zidanedb-erase-persistence-test.zdb"};
 
     {
         zidanedb::Database database{file.path()};
@@ -188,11 +154,8 @@ TEST_CASE("erased values remain erased after reopening")
     }
 }
 
-TEST_CASE("multi-line value should work")
-{
-    TemporaryDatabaseFile file{
-        "zidanedb-multiline-persistence-test.zdb"
-    };
+TEST_CASE("multi-line value should work") {
+    TemporaryDatabaseFile file{"zidanedb-multiline-persistence-test.zdb"};
 
     {
         zidanedb::Database database{file.path()};

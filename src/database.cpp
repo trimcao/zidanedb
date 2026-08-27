@@ -1,80 +1,60 @@
 #include "zidanedb/database.h"
+#include <cppcodec/base64_rfc4648.hpp>
 #include <cstdint>
-#include <iostream>
-#include <optional>
-#include <unordered_map>
-#include <utility>
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <iostream>
+#include <optional>
 #include <stdexcept>
-#include <cppcodec/base64_rfc4648.hpp>
 #include <string>
+#include <unordered_map>
+#include <utility>
 
 namespace {
 
-void write_string(std::ostream& stream, const std::string& s)
-{
+void write_string(std::ostream& stream, const std::string& s) {
     const std::uint32_t length = static_cast<std::uint32_t>(s.size());
-    stream.write(
-        reinterpret_cast<const char*>(&length),
-        sizeof(length)
-    );
-    stream.write(
-        s.data(),
-        static_cast<std::streamsize>(s.size())
-    );
+    stream.write(reinterpret_cast<const char*>(&length), sizeof(length));
+    stream.write(s.data(), static_cast<std::streamsize>(s.size()));
 }
 
-bool read_string(std::istream& stream, std::string& result)
-{
+bool read_string(std::istream& stream, std::string& result) {
     std::uint32_t length = {};
-    if (!stream.read(
-            reinterpret_cast<char*>(&length),
-            sizeof(length))) {
+    if (!stream.read(reinterpret_cast<char*>(&length), sizeof(length))) {
         return false;
     }
 
     // assume that length == 0 means the key is deleted
-    if (length == 0) return false;
+    if (length == 0)
+        return false;
 
     result.resize(length);
 
-    if (!stream.read(
-            result.data(),
-            static_cast<std::streamsize>(length))) {
-        return false;
-    }
-
-    return true;
-
-}
-
-bool read_uint64(std::istream& stream, uint64_t& result)
-{
-    if (!stream.read(
-            reinterpret_cast<char*>(&result),
-            sizeof(uint64_t))) {
+    if (!stream.read(result.data(), static_cast<std::streamsize>(length))) {
         return false;
     }
 
     return true;
 }
 
-void write_uint64(std::ostream& stream, const uint64_t n)
-{
-    stream.write(
-        reinterpret_cast<const char*>(&n),
-        sizeof(n)
-    );
+bool read_uint64(std::istream& stream, uint64_t& result) {
+    if (!stream.read(reinterpret_cast<char*>(&result), sizeof(uint64_t))) {
+        return false;
+    }
+
+    return true;
 }
 
-}// namespace
+void write_uint64(std::ostream& stream, const uint64_t n) {
+    stream.write(reinterpret_cast<const char*>(&n), sizeof(n));
+}
+
+} // namespace
 
 namespace zidanedb {
 
-Database::Database(std::filesystem::path path)
-{
+Database::Database(std::filesystem::path path) {
     db_path_ = std::move(path);
     idx_path_ = db_path_;
     idx_path_.replace_extension(".zidx");
@@ -87,10 +67,7 @@ Database::Database(std::filesystem::path path)
         return;
     }
 
-    std::ifstream file{
-        idx_path_,
-        std::ios::binary
-    };
+    std::ifstream file{idx_path_, std::ios::binary};
     if (!file) {
         std::cerr << "Could not open the file " << idx_path_.string() << '\n';
         return;
@@ -107,9 +84,7 @@ Database::Database(std::filesystem::path path)
     }
 }
 
-std::optional<std::string>
-Database::get(const std::string& key) const
-{
+std::optional<std::string> Database::get(const std::string& key) const {
     std::string val;
 
     auto offset = index_.find(key);
@@ -118,10 +93,7 @@ Database::get(const std::string& key) const
     }
 
     // read the value from the db file
-    std::ifstream file{
-        db_path_,
-        std::ios::binary
-    };
+    std::ifstream file{db_path_, std::ios::binary};
     if (!file) {
         std::cerr << "Could not open the file\n";
         return std::nullopt;
@@ -133,15 +105,14 @@ Database::get(const std::string& key) const
     }
 
     // try to read the val
-    if(!read_string(file, val)) {
+    if (!read_string(file, val)) {
         return std::nullopt;
     }
 
     return val;
 }
 
-void Database::put(std::string key, std::string val)
-{
+void Database::put(std::string key, std::string val) {
     // TODO: decide what it means to have val equal to empty.
 
     // assume that we will keep appending even if new_val == current_val
@@ -151,10 +122,7 @@ void Database::put(std::string key, std::string val)
 
     // new approach: keep writing to the db file
     try {
-        file.open(
-            db_path_,
-            std::ios::binary | std::ios::app
-        );
+        file.open(db_path_, std::ios::binary | std::ios::app);
 
         // assumption: the last write wins,
         // the last value of the key stays
@@ -162,10 +130,8 @@ void Database::put(std::string key, std::string val)
         db_offset = file.tellp();
         write_string(file, val);
 
-    } catch (const std::ios_base::failure &error) {
-        throw std::runtime_error {
-            "Could not write database file: " + db_path_.string()
-        };
+    } catch (const std::ios_base::failure& error) {
+        throw std::runtime_error{"Could not write database file: " + db_path_.string()};
     }
 
     // update the index file
@@ -183,12 +149,7 @@ void Database::put(std::string key, std::string val)
     // - if found, edit the offset value for that key.
     uint64_t idx_offset = UINT64_MAX;
     try {
-        std::fstream idxfile{
-            idx_path_,
-            std::ios::in |
-            std::ios::out |
-            std::ios::binary
-        };
+        std::fstream idxfile{idx_path_, std::ios::in | std::ios::out | std::ios::binary};
 
         std::string k;
         uint64_t offset;
@@ -211,15 +172,12 @@ void Database::put(std::string key, std::string val)
         }
         write_uint64(idxfile, db_offset);
 
-    } catch (const std::ios_base::failure &error) {
-        throw std::runtime_error {
-            "Could not read index file: " + idx_path_.string()
-        };
+    } catch (const std::ios_base::failure& error) {
+        throw std::runtime_error{"Could not read index file: " + idx_path_.string()};
     }
 }
 
-bool Database::erase(const std::string& key)
-{
+bool Database::erase(const std::string& key) {
     bool retval = index_.erase(key);
     // new approach:
     // keep writing to the db file
@@ -229,19 +187,14 @@ bool Database::erase(const std::string& key)
     // only update the db file if the key is deleted
     if (retval) {
         try {
-            file.open(
-                db_path_,
-                std::ios::binary | std::ios::app
-            );
+            file.open(db_path_, std::ios::binary | std::ios::app);
 
             // assumption: empty value means the key is deleted
             write_string(file, key);
             write_string(file, "");
 
-        } catch (const std::ios_base::failure &error) {
-            throw std::runtime_error {
-                "Could not write database file: " + db_path_.string()
-            };
+        } catch (const std::ios_base::failure& error) {
+            throw std::runtime_error{"Could not write database file: " + db_path_.string()};
         }
 
         // update index file
@@ -250,10 +203,7 @@ bool Database::erase(const std::string& key)
         uint64_t idx_offset = UINT64_MAX;
 
         try {
-            idx_ifile.open(
-                idx_path_,
-                std::ios::binary
-            );
+            idx_ifile.open(idx_path_, std::ios::binary);
 
             std::string k;
             uint64_t offset;
@@ -268,31 +218,24 @@ bool Database::erase(const std::string& key)
                 }
             }
 
-        } catch (const std::ios_base::failure &error) {
-            throw std::runtime_error {
-                "Could not read index file: " + idx_path_.string()
-            };
+        } catch (const std::ios_base::failure& error) {
+            throw std::runtime_error{"Could not read index file: " + idx_path_.string()};
         }
 
         try {
-            idx_ofile.open(
-                idx_path_,
-                std::ios::binary | std::ios::in | std::ios::ate
-            );
+            idx_ofile.open(idx_path_, std::ios::binary | std::ios::in | std::ios::ate);
 
             if (idx_offset != UINT64_MAX) {
                 idx_ofile.seekp(idx_offset, std::ios::beg);
                 write_uint64(idx_ofile, 0);
             }
 
-        } catch (const std::ios_base::failure &error) {
-            throw std::runtime_error {
-                "Could not write index file: " + idx_path_.string()
-            };
+        } catch (const std::ios_base::failure& error) {
+            throw std::runtime_error{"Could not write index file: " + idx_path_.string()};
         }
     }
 
     return retval;
 }
 
-}
+} // namespace zidanedb

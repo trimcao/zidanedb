@@ -7,10 +7,8 @@
 
 namespace matrix::tests::detail {
 
-std::string random_string(
-    std::mt19937_64& random_engine,
-    std::size_t length);
+std::string random_string(std::mt19937_64& random_engine, std::size_t length);
 
 }
 
-#endif //MATRIX_UTILS_H
+#endif // MATRIX_UTILS_H

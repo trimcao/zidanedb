@@ -1,24 +1,22 @@
 #ifndef ZIDANEDB_DATABASE_H
 #define ZIDANEDB_DATABASE_H
 
-#include <string>
-#include <unordered_map>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
-#include <cstdint>
+#include <string>
+#include <unordered_map>
 
 namespace zidanedb {
 
 class Database {
-private:
+  private:
     std::filesystem::path db_path_;
     std::filesystem::path idx_path_;
     std::unordered_map<std::string, uint64_t> index_;
 
-public:
-    explicit Database(
-        std::filesystem::path path
-    );
+  public:
+    explicit Database(std::filesystem::path path);
 
     [[nodiscard]]
     std::optional<std::string> get(const std::string& key) const;

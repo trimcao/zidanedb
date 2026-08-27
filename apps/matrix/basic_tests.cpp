@@ -1,10 +1,10 @@
 #include "matrix.h"
 #include "utils.h"
 #include "zidanedb/database.h"
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <random>
-#include <chrono>
 
 namespace matrix::tests {
 
@@ -12,8 +12,7 @@ int run_basic() {
     constexpr std::size_t pair_count = 10'000;
 
     const std::filesystem::path path =
-        std::filesystem::temp_directory_path() /
-        "zidanedb-matrix-test.zdb";
+        std::filesystem::temp_directory_path() / "zidanedb-matrix-test.zdb";
 
     std::filesystem::remove(path);
 
@@ -26,23 +25,16 @@ int run_basic() {
         zidanedb::Database database{path};
         for (std::size_t index = 0; index < pair_count; ++index) {
             // The index guarantees that every key is unique
-            std::string key =
-                "key-" +
-                std::to_string(index) +
-                "-" +
-                matrix::tests::detail::random_string(random_engine, 12);
+            std::string key = "key-" + std::to_string(index) + "-" +
+                              matrix::tests::detail::random_string(random_engine, 12);
 
-            std::string value =
-                matrix::tests::detail::random_string(random_engine, 32);
+            std::string value = matrix::tests::detail::random_string(random_engine, 32);
 
             expected.emplace(key, value);
             database.put(key, value);
 
-            if ((index + 1) % 1'000 == 0 ) {
-                std::cout
-                    << "Inserted "
-                    << index + 1
-                    << " pairs\n";
+            if ((index + 1) % 1'000 == 0) {
+                std::cout << "Inserted " << index + 1 << " pairs\n";
             }
         }
     } // Destroy the writing database
@@ -66,10 +58,7 @@ int run_basic() {
 
     std::filesystem::remove(path);
 
-    std::cout
-        << "PASS: verified "
-        << expected.size()
-        << " persisted pairs\n";
+    std::cout << "PASS: verified " << expected.size() << " persisted pairs\n";
 
     return 0;
 }
@@ -79,12 +68,10 @@ int run_perf_basic(std::size_t pair_count) {
     using Seconds = std::chrono::duration<double>;
 
     const std::filesystem::path path =
-        std::filesystem::temp_directory_path() /
-        "matrix-performance.zdb";
+        std::filesystem::temp_directory_path() / "matrix-performance.zdb";
 
     const std::filesystem::path idx_path =
-        std::filesystem::temp_directory_path() /
-        "matrix-performance.zidx";
+        std::filesystem::temp_directory_path() / "matrix-performance.zidx";
 
     std::cout << "Database file: " << path << '\n';
 
@@ -96,9 +83,7 @@ int run_perf_basic(std::size_t pair_count) {
     // Generate data before timing database operations
     {
         for (std::size_t index = 0; index < pair_count; ++index) {
-            expected.emplace(
-                "key-" + std::to_string(index),
-                "value-" + std::to_string(index));
+            expected.emplace("key-" + std::to_string(index), "value-" + std::to_string(index));
         }
     }
 
@@ -140,28 +125,16 @@ int run_perf_basic(std::size_t pair_count) {
     const auto file_size = std::filesystem::file_size(path);
 
     std::cout << "Pairs:        " << pair_count << '\n';
-    std::cout << "Put time:     "
-            << put_duration.count()
-            << " seconds\n";
-    std::cout << "Put rate:     "
-            << pair_count / put_duration.count()
-            << " ops/second\n";
-    std::cout << "Load time:    "
-            << load_duration.count()
-            << " seconds\n";
-    std::cout << "Verify time:  "
-            << verify_duration.count()
-            << " seconds\n";
-    std::cout << "Get rate:     "
-            << pair_count / verify_duration.count()
-            << " ops/second\n";
-    std::cout << "File size:    "
-            << file_size
-            << " bytes\n";
+    std::cout << "Put time:     " << put_duration.count() << " seconds\n";
+    std::cout << "Put rate:     " << pair_count / put_duration.count() << " ops/second\n";
+    std::cout << "Load time:    " << load_duration.count() << " seconds\n";
+    std::cout << "Verify time:  " << verify_duration.count() << " seconds\n";
+    std::cout << "Get rate:     " << pair_count / verify_duration.count() << " ops/second\n";
+    std::cout << "File size:    " << file_size << " bytes\n";
 
     std::filesystem::remove(path);
 
     return 0;
 }
 
-}
+} // namespace matrix::tests

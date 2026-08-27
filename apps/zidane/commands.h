@@ -12,24 +12,14 @@
 
 namespace zidanedb::cli {
 
-int run_put(
-    Database& database,
-    std::string key,
-    std::string value,
-    std::ostream& output);
+int run_put(Database& database, std::string key, std::string value, std::ostream& output);
 
 // note: use `std::string& key` to avoid copying the string key.
-int run_get(
-    const Database& database,
-    const std::string& key,
-    std::ostream& output,
-    std::ostream& error);
+int run_get(const Database& database, const std::string& key, std::ostream& output,
+            std::ostream& error);
 
-int run_delete(
-    Database& database,
-    const std::string& key,
-    std::ostream& output,
-    std::ostream& error);
+int run_delete(Database& database, const std::string& key, std::ostream& output,
+               std::ostream& error);
 
 } // namespace zidanedb::cli
 

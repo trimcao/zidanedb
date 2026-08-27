@@ -1,7 +1,7 @@
 BUILD_DIR := build
 RELEASE_BUILD_DIR := build-release
 
-.PHONY: all configure build test clean superclean
+.PHONY: all configure build test clean superclean format format-check
 
 all: build
 
@@ -37,3 +37,12 @@ clean:
 superclean:
 	cmake -E rm -rf $(BUILD_DIR)
 	cmake -E rm -rf $(RELEASE_BUILD_DIR)
+
+
+format:
+	git ls-files -z -- '*.cpp' '*.h' '*.hpp' | \
+		xargs -0 clang-format -i
+
+format-check:
+	git ls-files -z -- '*.cpp' '*.h' '*.hpp' | \
+		xargs -0 clang-format --dry-run --Werror

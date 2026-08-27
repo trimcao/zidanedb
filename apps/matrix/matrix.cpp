@@ -14,29 +14,16 @@ Subcommands have several advantages:
 
 */
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     CLI::App app{"Matrix: Tormentor of ZidaneDB"};
     app.set_version_flag("--version", "Matrix 0.1.0");
 
-    auto* basic =
-        app.add_subcommand(
-            "basic",
-            "Verify persistence across reopening"
-        );
+    auto* basic = app.add_subcommand("basic", "Verify persistence across reopening");
 
     std::size_t pair_count = 10'000;
 
-    auto* perf_basic =
-        app.add_subcommand(
-            "perf-basic",
-            "Measure basic persistence performance"
-        );
-    perf_basic->add_option(
-        "-n,--pairs",
-        pair_count,
-        "Number of pairs"
-    );
+    auto* perf_basic = app.add_subcommand("perf-basic", "Measure basic persistence performance");
+    perf_basic->add_option("-n,--pairs", pair_count, "Number of pairs");
 
     app.require_subcommand(1, 1);
 
