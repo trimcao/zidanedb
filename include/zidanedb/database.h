@@ -17,7 +17,10 @@ private:
     std::unordered_map<std::string, uint64_t> index_;
 
 public:
-    explicit Database(std::filesystem::path path);
+    explicit Database(
+        std::filesystem::path path,
+        std::filesystem::path idx_path
+    );
 
     [[nodiscard]]
     std::optional<std::string> get(const std::string& key) const;

@@ -50,49 +50,68 @@ bool read_string(std::ifstream& file, std::string& result)
 
 }
 
+bool read_uint64(std::ifstream& file, uint64_t& result)
+{
+    if (!file.read(
+            reinterpret_cast<char*>(&result),
+            sizeof(uint64_t))) {
+        return false;
+    }
+
+    return true;
+}
+
+void write_uint64(std::ofstream& file, const uint64_t n)
+{
+    file.write(
+        reinterpret_cast<const char*>(&n),
+        sizeof(n)
+    );
+}
+
 }// namespace
 
 namespace zidanedb {
 
-Database::Database(std::filesystem::path path)
+Database::Database(
+    std::filesystem::path path,
+    std::filesystem::path idx_path)
 {
     db_path_ = std::move(path);
+    idx_path_ = std::move(idx_path);
     index_ = std::unordered_map<std::string, uint64_t>{};
 
-    // check the path, if it exists, load the data to the map
-    if (!std::filesystem::exists(db_path_)) {
+    // Note: we load the index file now, not the db file
+    // check if the file exists
+    if (!std::filesystem::exists(idx_path_)) {
         return;
     }
 
-    // remember: After std::move(x), don’t read the old value of x;
-    // destroy it or assign a new value to it.
-    // So don't use `path` here, use `db_path_`
     std::ifstream file{
-        db_path_,
+        idx_path_,
         std::ios::binary
     };
     if (!file) {
-        std::cerr << "Could not open the file\n";
+        std::cerr << "Could not open the file " << idx_path_.string() << '\n';
         return;
     }
 
-    std::string key, value;
+    std::string key;
     uint64_t offset;
     while (read_string(file, key)) {
-        // save the val offset to the index
-        offset = file.tellg();
-        // TODO: check tellg error?
-        index_[key] = offset;
-        if (!read_string(file, value)) {
+        if (!read_uint64(file, offset)) {
             std::cerr << "Incomplete database record\n";
             break;
         }
+        index_[key] = offset;
     }
 }
 
 std::optional<std::string>
 Database::get(const std::string& key) const
 {
+    // TODO: make sure the db file exists?
+
     std::string val;
 
     auto offset = index_.find(key);
@@ -125,9 +144,12 @@ Database::get(const std::string& key) const
 
 void Database::put(std::string key, std::string val)
 {
+    // TODO: decide what it means to have val equal to empty.
+
     // assume that we will keep appending even if new_val == current_val
 
-    std::ofstream file;
+    std::ofstream file, idx_ofile;
+    uint64_t db_offset;
 
     // new approach: keep writing to the db file
     try {
@@ -139,15 +161,82 @@ void Database::put(std::string key, std::string val)
         // assumption: the last write wins,
         // the last value of the key stays
         write_string(file, key);
-        index_.insert_or_assign(key, file.tellp());
+        db_offset = file.tellp();
         write_string(file, val);
 
-        file.close();
     } catch (const std::ios_base::failure &error) {
         throw std::runtime_error {
             "Could not write database file: " + db_path_.string()
         };
     }
+
+    if (!std::filesystem::exists(idx_path_)) {
+        std::ofstream create(idx_path_, std::ios::binary);
+    }
+
+    std::ifstream idx_ifile;
+    index_.insert_or_assign(key, db_offset);
+    // update the index file
+    uint64_t idx_offset = UINT64_MAX;
+    try {
+        // std::fstream idxfile{
+        //     idx_path_,
+        //     std::ios::in |
+        //     std::ios::out |
+        //     std::ios::binary
+        // };
+
+        idx_ifile.open(
+            idx_path_,
+            std::ios::binary
+        );
+
+        std::string k;
+        uint64_t offset;
+        while (read_string(idx_ifile, k)) {
+            std::cout << "reading k=" << k << "\n";
+            if (key == k) {
+                idx_offset = idx_ifile.tellg();
+                break;
+            }
+            if (!read_uint64(idx_ifile, offset)) {
+                std::cerr << "Incomplete index record\n";
+                break;
+            }
+        }
+
+    } catch (const std::ios_base::failure &error) {
+        throw std::runtime_error {
+            "Could not read index file: " + idx_path_.string()
+        };
+    }
+
+    try {
+        idx_ofile.open(
+            idx_path_,
+            std::ios::binary | std::ios::in | std::ios::ate
+        );
+
+        std::cout << "idx_offset for " << key << ": " << idx_offset << "\n";
+
+        if (idx_offset == UINT64_MAX) {
+            std::cout << "equal max\n";
+
+            idx_ofile.seekp(0, std::ios::end);
+            write_string(idx_ofile, key);
+        } else {
+            std::cout << "not equal max\n";
+            idx_ofile.seekp(idx_offset, std::ios::beg);
+        }
+
+        write_uint64(idx_ofile, db_offset);
+
+    } catch (const std::ios_base::failure &error) {
+        throw std::runtime_error {
+            "Could not write index file: " + idx_path_.string()
+        };
+    }
+
 }
 
 bool Database::erase(const std::string& key)
@@ -170,10 +259,56 @@ bool Database::erase(const std::string& key)
             write_string(file, key);
             write_string(file, "");
 
-            file.close();
         } catch (const std::ios_base::failure &error) {
             throw std::runtime_error {
                 "Could not write database file: " + db_path_.string()
+            };
+        }
+
+        // update index file
+        std::ifstream idx_ifile;
+        std::ofstream idx_ofile;
+        uint64_t idx_offset = UINT64_MAX;
+
+        try {
+            idx_ifile.open(
+                idx_path_,
+                std::ios::binary
+            );
+
+            std::string k;
+            uint64_t offset;
+            while (read_string(idx_ifile, k)) {
+                if (key == k) {
+                    idx_offset = idx_ifile.tellg();
+                    break;
+                }
+                if (!read_uint64(idx_ifile, offset)) {
+                    std::cerr << "Incomplete index record\n";
+                    break;
+                }
+            }
+
+        } catch (const std::ios_base::failure &error) {
+            throw std::runtime_error {
+                "Could not read index file: " + idx_path_.string()
+            };
+        }
+
+        try {
+            idx_ofile.open(
+                idx_path_,
+                std::ios::binary | std::ios::in | std::ios::ate
+            );
+
+            if (idx_offset != UINT64_MAX) {
+                idx_ofile.seekp(idx_offset, std::ios::beg);
+                write_uint64(idx_ofile, 0);
+            }
+
+        } catch (const std::ios_base::failure &error) {
+            throw std::runtime_error {
+                "Could not write index file: " + idx_path_.string()
             };
         }
     }

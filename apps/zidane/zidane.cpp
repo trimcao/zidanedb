@@ -23,11 +23,18 @@ int main(int argc, char** argv)
     app.set_version_flag("--version", "ZidaneDB 0.1.0");
 
     std::string database_path;
+    std::string index_path;
 
     app.add_option(
         "-d,--db",
         database_path,
         "Path to the database"
+    )->required();
+
+    app.add_option(
+        "-i,--idx",
+        index_path,
+        "Path to the index"
     )->required();
 
     std::string put_key;
@@ -67,9 +74,10 @@ int main(int argc, char** argv)
 
     // build the database
     std::filesystem::path path {database_path};
+    std::filesystem::path idx_path {index_path};
 
     try {
-        zidanedb::Database db {path};
+        zidanedb::Database db {path, idx_path};
 
         if (*put_command) {
             return zidanedb::cli::run_put(

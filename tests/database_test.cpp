@@ -20,12 +20,16 @@ public:
     // note about the `explicit` keyword:
     // This prevents C++ from automatically converting a string
     // into a TemporaryDatabaseFile.
-    explicit TemporaryDatabaseFile(const std::string& filename)
+    explicit TemporaryDatabaseFile(const std::string& filename, const std::string& idx_file)
         : path_{
             // note: For filesystem paths, / is overloaded
             // to mean 'join these path components.'
-            std::filesystem::temp_directory_path() /
-            filename
+            std::filesystem::temp_directory_path() / filename
+        },
+        idx_path_{
+            // note: For filesystem paths, / is overloaded
+            // to mean 'join these path components.'
+            std::filesystem::temp_directory_path() / idx_file
         }
     {
         remove();
@@ -43,13 +47,20 @@ public:
         return path_;
     }
 
+    const std::filesystem::path& idx_path() const
+    {
+        return idx_path_;
+    }
+
 private:
     std::filesystem::path path_;
+    std::filesystem::path idx_path_;
 
     void remove()
     {
         std::error_code ignored;
         std::filesystem::remove(path_, ignored);
+        std::filesystem::remove(idx_path_, ignored);
     }
 };
 
@@ -59,9 +70,10 @@ private:
 TEST_CASE("get returns no value for a missing key")
 {
     TemporaryDatabaseFile file{
-        "get-missing-key.zdb"
+        "get-missing-key.zdb",
+        "get-missing-key.zidx"
     };
-    zidanedb::Database db{file.path()};
+    zidanedb::Database db{file.path(), file.idx_path()};
     const auto result = db.get("missing");
     REQUIRE_FALSE(result.has_value());
 }
@@ -69,9 +81,11 @@ TEST_CASE("get returns no value for a missing key")
 TEST_CASE("put stores a value")
 {
     TemporaryDatabaseFile file{
-        "put.zdb"
+        "put.zdb",
+        "put.zidx"
+
     };
-    zidanedb::Database db{file.path()};
+    zidanedb::Database db{file.path(), file.idx_path()};
     db.put("player", "Bellingham");
     const auto result = db.get("player");
     REQUIRE(result.has_value());
@@ -81,9 +95,10 @@ TEST_CASE("put stores a value")
 TEST_CASE("put replaces an existing value")
 {
     TemporaryDatabaseFile file{
-        "put-existing.zdb"
+        "put-existing.zdb",
+        "put-existing.zidx"
     };
-    zidanedb::Database db{file.path()};
+    zidanedb::Database db{file.path(), file.idx_path()};
     db.put("player", "Bellingham");
     db.put("player", "Ronaldo");
     const auto result = db.get("player");
@@ -94,9 +109,10 @@ TEST_CASE("put replaces an existing value")
 TEST_CASE("erase removes an existing key")
 {
     TemporaryDatabaseFile file{
-        "erase.zdb"
+        "erase.zdb",
+        "erase.zidx"
     };
-    zidanedb::Database db{file.path()};
+    zidanedb::Database db{file.path(), file.idx_path()};
     db.put("player", "Bellingham");
     const auto existed = db.erase("player");
     REQUIRE(existed);
@@ -106,27 +122,29 @@ TEST_CASE("erase removes an existing key")
 TEST_CASE("erase returns false for a missing key")
 {
     TemporaryDatabaseFile file{
-        "erase-missing-key.zdb"
+        "erase-missing-key.zdb",
+        "erase-missing-key.zidx"
     };
-    zidanedb::Database db{file.path()};
+    zidanedb::Database db{file.path(), file.idx_path()};
     REQUIRE_FALSE(db.erase("missing"));
 }
 
 TEST_CASE("put persists values after reopening")
 {
     TemporaryDatabaseFile file{
-        "zidanedb-put-persistence-test.zdb"
+        "zidanedb-put-persistence-test.zdb",
+        "zidanedb-put-persistence-test.zidx"
     };
 
     {
-        zidanedb::Database database{file.path()};
+        zidanedb::Database database{file.path(), file.idx_path()};
 
         database.put("player", "Zidane");
         database.put("team", "Real Madrid");
     } // the first Database is destroyed here
 
     {
-        const zidanedb::Database database{file.path()};
+        const zidanedb::Database database{file.path(), file.idx_path()};
 
         const auto player = database.get("player");
         const auto team = database.get("team");
@@ -141,17 +159,18 @@ TEST_CASE("put persists values after reopening")
 TEST_CASE("replaced values remain replaced after reopening")
 {
     TemporaryDatabaseFile file{
-        "zidanedb-replace-persistence-test.zdb"
+        "zidanedb-replace-persistence-test.zdb",
+        "zidanedb-replace-persistence-test.zidx"
     };
 
     {
-        zidanedb::Database database{file.path()};
+        zidanedb::Database database{file.path(), file.idx_path()};
         database.put("player", "Zidane");
         database.put("player", "Ronaldo");
     }
 
     {
-        zidanedb::Database database{file.path()};
+        zidanedb::Database database{file.path(), file.idx_path()};
         const auto player = database.get("player");
         REQUIRE(player.has_value());
         REQUIRE(*player == "Ronaldo");
@@ -161,11 +180,12 @@ TEST_CASE("replaced values remain replaced after reopening")
 TEST_CASE("erased values remain erased after reopening")
 {
     TemporaryDatabaseFile file{
-        "zidanedb-erase-persistence-test.zdb"
+        "zidanedb-erase-persistence-test.zdb",
+        "zidanedb-erase-persistence-test.zidx"
     };
 
     {
-        zidanedb::Database database{file.path()};
+        zidanedb::Database database{file.path(), file.idx_path()};
         database.put("player", "Ronaldo");
         database.put("nationality", "Portugal");
         database.put("position", "Winger");
@@ -173,7 +193,7 @@ TEST_CASE("erased values remain erased after reopening")
     }
 
     {
-        zidanedb::Database database{file.path()};
+        zidanedb::Database database{file.path(), file.idx_path()};
         const auto nation = database.get("nationality");
         const auto position = database.get("position");
         REQUIRE(nation.has_value());
@@ -185,17 +205,18 @@ TEST_CASE("erased values remain erased after reopening")
 TEST_CASE("multi-line value should work")
 {
     TemporaryDatabaseFile file{
-        "zidanedb-multiline-persistence-test.zdb"
+        "zidanedb-multiline-persistence-test.zdb",
+        "zidanedb-multiline-persistence-test.zidx"
     };
 
     {
-        zidanedb::Database database{file.path()};
+        zidanedb::Database database{file.path(), file.idx_path()};
         database.put("player", "Ronaldo");
         database.put("multi", "line1\nline2");
     }
 
     {
-        zidanedb::Database database{file.path()};
+        zidanedb::Database database{file.path(), file.idx_path()};
         const auto multi = database.get("multi");
         REQUIRE(multi.has_value());
         REQUIRE(*multi == "line1\nline2");
