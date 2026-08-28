@@ -21,9 +21,23 @@ int main(int argc, char** argv) {
     auto* basic = app.add_subcommand("basic", "Verify persistence across reopening");
 
     std::size_t pair_count = 10'000;
-
     auto* perf_basic = app.add_subcommand("perf-basic", "Measure basic persistence performance");
     perf_basic->add_option("-n,--pairs", pair_count, "Number of pairs");
+
+    std::size_t large_pair_count = 1'000;
+    std::size_t large_value_size = 64 * 1024;
+    auto* perf_large_values = app.add_subcommand("perf-large-values", "Workload with large values");
+    perf_large_values->add_option("-n,--pairs", large_pair_count, "Number of pairs");
+    perf_large_values->add_option("-s,--value-size", large_value_size, "Value size in bytes");
+
+    std::size_t overwrite_pair_count = 1'000;
+    std::size_t overwrite_times = 100;
+    auto* perf_overwrite =
+        app.add_subcommand("perf-overwrite", "Workload with a lot of overwrites");
+    perf_overwrite->add_option("-n,--pairs", overwrite_pair_count, "Number of pairs")
+        ->check(CLI::PositiveNumber);
+    perf_overwrite->add_option("-o,--overwrites", overwrite_times, "Overwrite times of each key")
+        ->check(CLI::PositiveNumber);
 
     app.require_subcommand(1, 1);
 
@@ -40,6 +54,14 @@ int main(int argc, char** argv) {
 
         if (*perf_basic) {
             return matrix::tests::run_perf_basic(pair_count);
+        }
+
+        if (*perf_large_values) {
+            return matrix::tests::run_perf_large_values(large_pair_count, large_value_size);
+        }
+
+        if (*perf_overwrite) {
+            return matrix::tests::run_perf_overwrite(overwrite_pair_count, overwrite_times);
         }
     } catch (const std::exception& error) {
         std::cerr << "matrix: " << error.what() << '\n';

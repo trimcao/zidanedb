@@ -15,6 +15,8 @@ struct WorkloadOptions {
 
 int run_basic();
 int run_perf_basic(std::size_t pair_count);
+int run_perf_large_values(std::size_t pair_count, std::size_t value_size);
+int run_perf_overwrite(std::size_t pair_count, std::size_t overwrite_times);
 
 } // namespace matrix::tests
 

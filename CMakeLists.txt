@@ -70,6 +70,9 @@ target_link_libraries(zidane
 add_executable(matrix
     apps/matrix/matrix.cpp
     apps/matrix/basic_tests.cpp
+    apps/matrix/perf_basic.cpp
+    apps/matrix/perf_large_values.cpp
+    apps/matrix/perf_overwrite.cpp
     apps/matrix/utils.cpp
 )
 
