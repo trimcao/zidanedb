@@ -1,3 +1,55 @@
+# Indexing (Part 2)
+
+## Recap
+Here is a quick summary of my ZidaneDB implementation so far:
+- Currently ZidaneDB persists both the database and the index.
+- During startup, the index is loaded into memory. This means the bigger
+the database, the longer the load time. We basically have the same problem
+as before.
+- GET operation: get the db offset from the index (stored in memory),
+and seek the db file.
+- PUT operation: write to the db file, and edit the index file in-place.
+Because now we also need to maintain the index file, `put` is a pretty
+expensive operation.
+- ERASE operation: very similar to the PUT op, we need to update both
+the db file and the index file.
+
+
+Let's talk about the current pain points:
+- Startup time (load time) depends on the size of the database.
+If we have a big database, startup time will take a long time.
+- Put time also depends on the size of the database now, because
+we need to edit the index file in-place so we need to scan the index
+file to find the given key.
+- It means it's impossible to work with 1 million keys at the moment.
+And that's my next objective.
+
+Thoughts on the `checkpoint` approach:
+- Previously, we discussed and noticed a `checkpoint` approach, where
+we read the db file at startup and build some kind of index.
+- The idea is we can save the location of the last db file read, and
+continue from there to save time.
+- However, at startup we still need to load the whole index file (with
+the current design), and we persist the index anyway, so probably
+this approach does not help.
+
+Thoughts on the design:
+- Loading the whole index file does not sound right. I probably need
+a different idea here.
+- I can avoid loading the index file to memory. Index file gives me
+the value offset on the db, so it only takes O(n) where n is equal to
+number of keys. This is better than reading the db file directly, because
+need to read the whole db file to make sure the value we get is the latest.
+In other words, it's better than having only the db file, but still,
+it's O(n).
+- Editing the index file in-place also does not scale. But I also
+cannot keep writing to the index file (like a log). Currently, this mechanism
+makes it more expensive for PUT op, but allows startup time to be faster
+in case there are a lot of overwrites in the db. Basically, PUT op is O(n)
+at the moment.
+- At startup: O(n) time, O(n) space. GET: O(1). PUT: O(n). ERASE: O(n).
+
+## Persistent Hash Index
 What to do:
 - Suggested by ChatGPT: create an abstraction for Index.
 This should make the code easier to understand.
