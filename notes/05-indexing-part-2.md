@@ -49,6 +49,29 @@ in case there are a lot of overwrites in the db. Basically, PUT op is O(n)
 at the moment.
 - At startup: O(n) time, O(n) space. GET: O(1). PUT: O(n). ERASE: O(n).
 
+Current matrix `perf-basic` results:
+```
+tri@fedora:~/tri/zidanedb$ ./build-release/matrix perf-basic -n 10000
+Database file: "/tmp/matrix-performance.zdb"
+Pairs:        10000
+Put time:     1.18819 seconds
+Put rate:     8416.18 ops/second
+Load time:    0.000524127 seconds
+Verify time:  0.0106359 seconds
+Get rate:     940214 ops/second
+File size:    257780 bytes
+
+tri@fedora:~/tri/zidanedb$ ./build-release/matrix perf-basic -n 100000
+Database file: "/tmp/matrix-performance.zdb"
+Pairs:        100000
+Put time:     116.935 seconds
+Put rate:     855.176 ops/second
+Load time:    0.00815008 seconds
+Verify time:  0.107059 seconds
+Get rate:     934064 ops/second
+File size:    2777780 bytes
+```
+
 ## Persistent Hash Index
 What to do:
 - Suggested by ChatGPT: create an abstraction for Index.

@@ -9,14 +9,18 @@
 
 namespace zidanedb {
 
+class Index;
+
 class Database {
   private:
     std::filesystem::path db_path_;
     std::filesystem::path idx_path_;
-    std::unordered_map<std::string, std::uint64_t> index_;
+    // std::unordered_map<std::string, std::uint64_t> index_;
+    std::unique_ptr<Index> index_;
 
   public:
     explicit Database(std::filesystem::path path);
+    ~Database();
 
     [[nodiscard]]
     std::optional<std::string> get(const std::string& key) const;

@@ -1,13 +1,14 @@
 #include "zidanedb/database.h"
+#include "index.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <ios>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 namespace {
@@ -58,36 +59,17 @@ Database::Database(std::filesystem::path path) {
     idx_path_ = db_path_;
     idx_path_.replace_extension(".zidx");
 
-    index_ = std::unordered_map<std::string, std::uint64_t>{};
+    index_ = std::make_unique<Index>(idx_path_);
 
-    // Note: we load the index file now, not the db file
-    // check if the file exists
-    if (!std::filesystem::exists(idx_path_)) {
-        return;
-    }
-
-    std::ifstream file{idx_path_, std::ios::binary};
-    if (!file) {
-        std::cerr << "Could not open the file " << idx_path_.string() << '\n';
-        return;
-    }
-
-    std::string key;
-    std::uint64_t offset;
-    while (read_string(file, key)) {
-        if (!read_uint64(file, offset)) {
-            std::cerr << "Incomplete database record\n";
-            break;
-        }
-        index_[key] = offset;
-    }
 }
+
+Database::~Database() = default;
 
 std::optional<std::string> Database::get(const std::string& key) const {
     std::string val;
 
-    auto offset = index_.find(key);
-    if (offset == index_.end() || offset->second == 0) {
+    auto offset = index_->find(key);
+    if (!offset) {
         return std::nullopt;
     }
 
@@ -97,7 +79,7 @@ std::optional<std::string> Database::get(const std::string& key) const {
         std::cerr << "Could not open the file\n";
         return std::nullopt;
     }
-    file.seekg(offset->second, std::ios::beg);
+    file.seekg(*offset, std::ios::beg);
     if (!file) {
         std::cerr << "Seek failed\n";
         return std::nullopt;
@@ -140,62 +122,15 @@ void Database::put(std::string key, std::string val) {
     }
 
     // update the index file
-
-    // create the idx file if it does not exist
-    if (!std::filesystem::exists(idx_path_)) {
-        std::ofstream create(idx_path_, std::ios::binary);
-    }
-
-    index_.insert_or_assign(key, db_offset);
-
-    // strategy:
-    // - find the index of the given key in the index file.
-    // - if not found, append the a new index entry.
-    // - if found, edit the offset value for that key.
-    std::uint64_t idx_offset = UINT64_MAX;
-    try {
-        std::fstream idxfile{idx_path_, std::ios::in | std::ios::out | std::ios::binary};
-        if (!idxfile) {
-            throw std::runtime_error{"Could not open index file: " + idx_path_.string()};
-        }
-
-        std::string k;
-        std::uint64_t offset;
-        while (read_string(idxfile, k)) {
-            if (key == k) {
-                idx_offset = idxfile.tellg();
-                break;
-            }
-            if (!read_uint64(idxfile, offset)) {
-                std::cerr << "Incomplete index record\n";
-                break;
-            }
-        }
-
-        idxfile.clear();
-
-        idxfile.exceptions(std::ios::failbit | std::ios::badbit);
-        if (idx_offset == UINT64_MAX) {
-            idxfile.seekp(0, std::ios::end);
-            write_string(idxfile, key);
-        } else {
-            idxfile.seekp(idx_offset, std::ios::beg);
-        }
-        write_uint64(idxfile, db_offset);
-        idxfile.flush();
-
-    } catch (const std::ios_base::failure& error) {
-        throw std::runtime_error{"Could not update index file: " + idx_path_.string()};
-    }
+    index_->set(key, db_offset);
 }
 
 bool Database::erase(const std::string& key) {
-    bool retval = index_.erase(key);
-    // new approach:
+    bool retval = index_->erase(key);
+
+    // approach:
     // keep writing to the db file
-
     std::ofstream file;
-
     // only update the db file if the key is deleted
     if (retval) {
         try {
@@ -209,41 +144,6 @@ bool Database::erase(const std::string& key) {
 
         } catch (const std::ios_base::failure& error) {
             throw std::runtime_error{"Could not write database file: " + db_path_.string()};
-        }
-
-        // update index file
-        std::uint64_t idx_offset = UINT64_MAX;
-
-        try {
-            std::fstream idxfile{idx_path_, std::ios::in | std::ios::out | std::ios::binary};
-            if (!idxfile) {
-                throw std::runtime_error{"Could not open index file: " + idx_path_.string()};
-            }
-
-            std::string k;
-            std::uint64_t offset;
-            while (read_string(idxfile, k)) {
-                if (key == k) {
-                    idx_offset = idxfile.tellg();
-                    break;
-                }
-                if (!read_uint64(idxfile, offset)) {
-                    std::cerr << "Incomplete index record\n";
-                    break;
-                }
-            }
-
-            idxfile.clear();
-
-            idxfile.exceptions(std::ios::failbit | std::ios::badbit);
-            if (idx_offset != UINT64_MAX) {
-                idxfile.seekp(idx_offset, std::ios::beg);
-                write_uint64(idxfile, 0);
-            }
-            idxfile.flush();
-
-        } catch (const std::ios_base::failure& error) {
-            throw std::runtime_error{"Could not update index file: " + idx_path_.string()};
         }
     }
 
