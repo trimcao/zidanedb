@@ -1,10 +1,16 @@
 ## How to build
+
 Just use `make`:
+
 ```
 make build
 ```
 
-To build fresh
+CLI11 and Catch2 are checked into `vendor/`, so configuration and compilation
+do not require network access, including after deleting the build directory.
+
+To build fresh:
+
 ```
 make clean          # clean first
 make superclean     # or clean everything

@@ -1,7 +1,7 @@
 BUILD_DIR := build
 RELEASE_BUILD_DIR := build-release
 
-.PHONY: all configure build test clean superclean format format-check configure-release configure-offline build-offline build-matrix
+.PHONY: all configure build test clean superclean format format-check configure-release build-release
 
 all: build
 
@@ -13,19 +13,11 @@ configure-release:
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBUILD_TESTING=OFF
 
-configure-offline:
-	cmake -S . -B $(BUILD_DIR) \
-		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-		-DFETCHCONTENT_FULLY_DISCONNECTED=ON
-
 build: configure
 	cmake --build $(BUILD_DIR)
 
-build-offline: configure-offline
-	cmake --build $(BUILD_DIR)
-
-build-matrix: configure-release
-	cmake --build build-release --target matrix
+build-release: configure-release
+	cmake --build $(RELEASE_BUILD_DIR)
 
 test: build
 	ctest --test-dir $(BUILD_DIR) --output-on-failure
@@ -39,9 +31,9 @@ superclean:
 
 
 format:
-	git ls-files -z -- '*.cpp' '*.h' '*.hpp' | \
+	git ls-files -z -- '*.cpp' '*.h' '*.hpp' ':(exclude)vendor/**' | \
 		xargs -0 clang-format -i
 
 format-check:
-	git ls-files -z -- '*.cpp' '*.h' '*.hpp' | \
+	git ls-files -z -- '*.cpp' '*.h' '*.hpp' ':(exclude)vendor/**' | \
 		xargs -0 clang-format --dry-run --Werror

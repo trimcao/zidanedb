@@ -8,18 +8,15 @@ project(
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-include(FetchContent)
-
-FetchContent_Declare(
-    CLI11
-    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG        v2.6.2
-)
-FetchContent_MakeAvailable(CLI11)
+# Dependencies are checked into vendor/ so configuring a fresh build tree does
+# not require network access.
+add_subdirectory(vendor/CLI11 EXCLUDE_FROM_ALL)
 
 add_library(zidanedb
     src/database.cpp
     include/zidanedb/database.h
+    src/index.h
+    src/index.cpp
     src/utils.h
 )
 
@@ -85,13 +82,7 @@ target_link_libraries(matrix
 include(CTest)
 
 if(BUILD_TESTING)
-    FetchContent_Declare(
-        Catch2
-        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-        GIT_TAG        v3.15.0
-    )
-
-    FetchContent_MakeAvailable(Catch2)
+    add_subdirectory(vendor/Catch2 EXCLUDE_FROM_ALL)
 
     add_executable(database_tests
         tests/database_test.cpp
@@ -103,7 +94,7 @@ if(BUILD_TESTING)
             Catch2::Catch2WithMain
     )
 
-    list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/vendor/Catch2/extras")
     include(Catch)
     catch_discover_tests(database_tests)
 endif()
