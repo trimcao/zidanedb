@@ -4,21 +4,50 @@ For this project, start with `clang-format`. It handles layout and whitespace au
 `clang-tidy` and `cppcheck` solve different problems, such as finding possible bugs, unsafe patterns,
 and maintainability issues. They are not required just to make the code style consistent.
 
-## Install `clang-format`
+## Install `clang-format` and `clangd`
 
-On macOS with Homebrew:
+The command-line `clang-format` program is used by the Makefile targets. The `clangd` language
+server provides formatting, diagnostics, completion, and navigation inside VS Code.
+
+### macOS
+
+Install LLVM with Homebrew:
 
 ```sh
-brew install clang-format
+brew install llvm
 ```
 
-This is the installation command from the
-[Homebrew `clang-format` formula](https://formulae.brew.sh/formula/clang-format).
+Homebrew installs LLVM as keg-only. Add its programs to the shell path so VS Code can find them:
 
-Verify the installation:
+```sh
+echo 'export PATH="$(brew --prefix llvm)/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+See the [Homebrew LLVM formula](https://formulae.brew.sh/formula/llvm) and the
+[clangd installation guide](https://clangd.llvm.org/installation).
+
+### Fedora Linux
+
+On Fedora, both programs are provided by `clang-tools-extra`:
+
+```sh
+sudo dnf install clang-tools-extra
+```
+
+### Debian and Ubuntu Linux
+
+On Debian-based distributions:
+
+```sh
+sudo apt install clang-format clangd
+```
+
+On either macOS or Linux, verify that both programs are available:
 
 ```sh
 clang-format --version
+clangd --version
 ```
 
 ## Add `.clang-format`
@@ -49,8 +78,7 @@ SortIncludes: CaseSensitive
 This is a reasonable starting point for the style generally used in ZidaneDB:
 
 ```cpp
-bool Database::erase(const std::string& key)
-{
+bool Database::erase(const std::string& key) {
     if (!data_.contains(key)) {
         return false;
     }
@@ -70,7 +98,7 @@ the project. See the
 This checks all tracked C++ files without modifying them:
 
 ```sh
-git ls-files -z -- '*.cpp' '*.h' '*.hpp' |
+git ls-files -z -- '*.cpp' '*.h' '*.hpp' ':(exclude)vendor/**' |
     xargs -0 clang-format --dry-run --Werror
 ```
 
@@ -80,7 +108,7 @@ unsuccessfully.
 ## Apply Formatting
 
 ```sh
-git ls-files -z -- '*.cpp' '*.h' '*.hpp' |
+git ls-files -z -- '*.cpp' '*.h' '*.hpp' ':(exclude)vendor/**' |
     xargs -0 clang-format -i
 ```
 
@@ -93,8 +121,8 @@ git diff
 The first formatting pass should ideally be made in its own commit. That prevents a large
 formatting diff from being mixed with changes to database behavior.
 
-Using `git ls-files` also avoids accidentally formatting downloaded dependencies under
-`build/_deps`.
+Using `git ls-files` avoids build outputs and untracked files. The explicit exclusion prevents
+clang-format from rewriting the checked-in third-party sources under `vendor/`.
 
 ## Add Makefile Commands
 
@@ -104,11 +132,11 @@ Add these targets to the `Makefile`:
 .PHONY: format format-check
 
 format:
-	git ls-files -z -- '*.cpp' '*.h' '*.hpp' | \
+	git ls-files -z -- '*.cpp' '*.h' '*.hpp' ':(exclude)vendor/**' | \
 		xargs -0 clang-format -i
 
 format-check:
-	git ls-files -z -- '*.cpp' '*.h' '*.hpp' | \
+	git ls-files -z -- '*.cpp' '*.h' '*.hpp' ':(exclude)vendor/**' | \
 		xargs -0 clang-format --dry-run --Werror
 ```
 
@@ -126,21 +154,48 @@ To check formatting without changing anything:
 make format-check
 ```
 
-## Optional VS Code Setup
+## VS Code Format on Save
 
-When using Microsoft's C/C++ extension, select it as the C++ formatter and enable formatting when
-saving:
+The same VS Code setup works on macOS and Linux. Install the official clangd extension from the
+Extensions panel, or from a terminal:
+
+```sh
+code --install-extension llvm-vs-code-extensions.vscode-clangd
+```
+
+If Microsoft's C/C++ extension is installed, disable it for this workspace to avoid running two C++
+language servers at the same time.
+
+Open the Command Palette with `Cmd+Shift+P` on macOS or `Ctrl+Shift+P` on Linux. Select
+**Preferences: Open User Settings (JSON)** and add:
 
 ```json
 "[cpp]": {
-    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "editor.formatOnSave": true
+},
+"[c]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
     "editor.formatOnSave": true
 }
 ```
 
-VS Code will use the `.clang-format` file. Clang-format searches for this file by walking upward
-from the source file toward the repository root. See the
-[LLVM clang-format documentation](https://clang.llvm.org/docs/ClangFormat.html).
+Open a C++ file and save it to test the setup. If VS Code asks which formatter to use, run
+**Format Document With...**, select **Configure Default Formatter**, and choose **clangd**.
+
+clangd uses the repository's `.clang-format` file. See the
+[clangd formatting documentation](https://clangd.llvm.org/features#formatting) and the
+[VS Code format-on-save
+documentation](https://code.visualstudio.com/docs/editing/codebasics#_formatting).
+
+For accurate diagnostics and code completion, generate the CMake compilation database:
+
+```sh
+make configure
+```
+
+This creates `build/compile_commands.json`. clangd searches the project's `build/` directory for
+this file automatically. The compilation database is not required for formatting alone.
 
 ## Formatting Versus Static Analysis
 

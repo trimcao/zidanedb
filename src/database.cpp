@@ -60,7 +60,6 @@ Database::Database(std::filesystem::path path) {
     idx_path_.replace_extension(".zidx");
 
     index_ = std::make_unique<Index>(idx_path_);
-
 }
 
 Database::~Database() = default;

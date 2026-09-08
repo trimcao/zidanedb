@@ -1,11 +1,9 @@
 #ifndef ZIDANEDB_DATABASE_H
 #define ZIDANEDB_DATABASE_H
 
-#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <unordered_map>
 
 namespace zidanedb {
 

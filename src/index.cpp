@@ -52,30 +52,8 @@ namespace zidanedb {
 
 Index::Index(std::filesystem::path path) {
     path_ = std::move(path);
-
-    // Note: we load the index file now, not the db file
-    // check if the file exists
-    if (!std::filesystem::exists(path_)) {
-        return;
-    }
-
-    std::ifstream file{path_, std::ios::binary};
-    if (!file) {
-        std::cerr << "Could not open the file " << path_.string() << '\n';
-        return;
-    }
-
-    std::string key;
-    std::uint64_t offset;
-    while (read_string(file, key)) {
-        if (!read_uint64(file, offset)) {
-            std::cerr << "Incomplete database record\n";
-            break;
-        }
-        offsets_[key] = offset;
-    }
+    load();
 }
-
 
 std::optional<std::uint64_t> Index::find(const std::string& key) const {
     auto offset = offsets_.find(key);
@@ -86,7 +64,7 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
 }
 
 void Index::set(std::string key, std::uint64_t db_offset) {
-// create the idx file if it does not exist
+    // create the idx file if it does not exist
     if (!std::filesystem::exists(path_)) {
         std::ofstream create(path_, std::ios::binary);
     }
@@ -134,7 +112,6 @@ void Index::set(std::string key, std::uint64_t db_offset) {
     }
 }
 
-
 bool Index::erase(const std::string& key) {
     bool retval = offsets_.erase(key);
 
@@ -175,4 +152,29 @@ bool Index::erase(const std::string& key) {
     return retval;
 }
 
+void Index::load() {
+
+    // Note: we load the index file now, not the db file
+    // check if the file exists
+    if (!std::filesystem::exists(path_)) {
+        return;
+    }
+
+    std::ifstream file{path_, std::ios::binary};
+    if (!file) {
+        std::cerr << "Could not open the file " << path_.string() << '\n';
+        return;
+    }
+
+    std::string key;
+    std::uint64_t offset;
+    while (read_string(file, key)) {
+        if (!read_uint64(file, offset)) {
+            std::cerr << "Incomplete database record\n";
+            break;
+        }
+        offsets_[key] = offset;
+    }
 }
+
+} // namespace zidanedb
