@@ -23,14 +23,15 @@ class Index {
 
   private:
     std::filesystem::path path_;
-    std::unordered_map<std::string, std::uint64_t> offsets_;
+    // std::unordered_map<std::string, std::uint64_t> offsets_;
 
-    std::string magic;
-    std::string version;
-    std::uint32_t num_buckets;
-    std::uint64_t entry_start_offset;
+    std::string magic_;
+    std::uint32_t version_;
+    std::uint64_t num_buckets_;
 
     void load();
+    void setup();
+    std::uint64_t get_start_entry_offset();
 };
 
 struct IndexEntry {
