@@ -18,6 +18,7 @@ class Database {
 
   public:
     explicit Database(std::filesystem::path path);
+    explicit Database(std::filesystem::path path, std::uint64_t num_index_buckets);
     ~Database();
 
     [[nodiscard]]

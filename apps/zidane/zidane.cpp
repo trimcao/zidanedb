@@ -22,8 +22,11 @@ int main(int argc, char** argv) {
     app.set_version_flag("--version", "ZidaneDB 0.1.0");
 
     std::string database_path;
+    std::uint64_t num_index_buckets = 1'000'000;
 
     app.add_option("-d,--db", database_path, "Path to the database")->required();
+    app.add_option("-b,--num-buckets", num_index_buckets,
+                   "Number of hash buckets used by the index file");
 
     std::string put_key;
     std::string put_value;
@@ -53,7 +56,7 @@ int main(int argc, char** argv) {
     std::filesystem::path path{database_path};
 
     try {
-        zidanedb::Database db{path};
+        zidanedb::Database db{path, num_index_buckets};
 
         if (*put_command) {
             return zidanedb::cli::run_put(db, std::move(put_key), std::move(put_value), std::cout);

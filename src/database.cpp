@@ -22,6 +22,14 @@ Database::Database(std::filesystem::path path) {
     index_ = std::make_unique<Index>(idx_path_);
 }
 
+Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets) {
+    db_path_ = std::move(path);
+    idx_path_ = db_path_;
+    idx_path_.replace_extension(".zidx");
+
+    index_ = std::make_unique<Index>(idx_path_, num_index_buckets);
+}
+
 Database::~Database() = default;
 
 std::optional<std::string> Database::get(const std::string& key) const {

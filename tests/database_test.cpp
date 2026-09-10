@@ -24,7 +24,7 @@ class TemporaryDatabaseFile {
         : path_{// note: For filesystem paths, / is overloaded
                 // to mean 'join these path components.'
                 std::filesystem::temp_directory_path() / filename},
-        idx_path_{path_} {
+          idx_path_{path_} {
 
         idx_path_.replace_extension(".zidx");
         remove();
@@ -198,5 +198,236 @@ TEST_CASE("a new index entry persists after reopening") {
 
         REQUIRE(result.has_value());
         REQUIRE(*result == "new-value");
+    }
+}
+
+TEST_CASE("test delete head in an index collision chain") {
+    // NOTE: we insert new index entry at head, that's why last in = head
+    TemporaryDatabaseFile file{"index-collision-chain-del-head.zdb"};
+
+    REQUIRE_FALSE(std::filesystem::exists(file.path()));
+    REQUIRE_FALSE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database database{file.path(), 1};
+        database.put("key1", "value1");
+        database.put("key2", "value2");
+        database.put("key3", "value3");
+        database.put("key4", "value4");
+    }
+
+    REQUIRE(std::filesystem::exists(file.path()));
+    REQUIRE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value1");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value2");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value3");
+
+        result = reopened.get("key4");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value4");
+
+        REQUIRE(reopened.erase("key4"));
+    }
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value1");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value2");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value3");
+
+        result = reopened.get("key4");
+        REQUIRE_FALSE(result.has_value());
+    }
+}
+
+TEST_CASE("test delete middle in an index collision chain") {
+    TemporaryDatabaseFile file{"index-collision-chain-del-middle.zdb"};
+
+    REQUIRE_FALSE(std::filesystem::exists(file.path()));
+    REQUIRE_FALSE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database database{file.path(), 1};
+        database.put("key1", "value1");
+        database.put("key2", "value2");
+        database.put("key3", "value3");
+    }
+
+    REQUIRE(std::filesystem::exists(file.path()));
+    REQUIRE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value1");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value2");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value3");
+
+        REQUIRE(reopened.erase("key2"));
+    }
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value1");
+
+        result = reopened.get("key2");
+        REQUIRE_FALSE(result.has_value());
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value3");
+    }
+}
+
+TEST_CASE("test delete tail in an index collision chain") {
+    TemporaryDatabaseFile file{"index-collision-chain-del-tail.zdb"};
+
+    REQUIRE_FALSE(std::filesystem::exists(file.path()));
+    REQUIRE_FALSE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database database{file.path(), 1};
+        database.put("key1", "value1");
+        database.put("key2", "value2");
+        database.put("key3", "value3");
+    }
+
+    REQUIRE(std::filesystem::exists(file.path()));
+    REQUIRE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value1");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value2");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value3");
+
+        REQUIRE(reopened.erase("key1"));
+    }
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE_FALSE(result.has_value());
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value2");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value3");
+    }
+}
+
+TEST_CASE("overwrite in an index collision chain") {
+    TemporaryDatabaseFile file{"index-collision-chain-overwrite.zdb"};
+
+    REQUIRE_FALSE(std::filesystem::exists(file.path()));
+    REQUIRE_FALSE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database database{file.path(), 1};
+        database.put("key1", "value1");
+        database.put("key2", "value2");
+        database.put("key3", "value3");
+    }
+
+    REQUIRE(std::filesystem::exists(file.path()));
+    REQUIRE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value1");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value2");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value3");
+
+        reopened.put("key1", "value11");
+        reopened.put("key2", "value22");
+    }
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value11");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value22");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value3");
+
+        reopened.put("key1", "value111");
+        reopened.put("key1", "value1111");
+    }
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value1111");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value22");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value3");
     }
 }

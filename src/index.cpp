@@ -10,8 +10,9 @@
 #include <utility>
 namespace zidanedb {
 
-Index::Index(std::filesystem::path path) {
+Index::Index(std::filesystem::path path, std::uint64_t num_buckets) {
     path_ = std::move(path);
+    num_buckets_ = num_buckets;
     if (std::filesystem::exists(path_)) {
         load();
     } else {
@@ -282,7 +283,6 @@ void Index::setup() {
     // hardcode some values here, will make it more formal later
     magic_ = "ZIDANEDBINDEX026";
     version_ = 1;
-    num_buckets_ = 1'000'000;
 
     std::ofstream file{path_, std::ios::binary};
     if (!file) {

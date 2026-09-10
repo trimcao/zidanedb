@@ -10,7 +10,7 @@ namespace zidanedb {
 
 class Index {
   public:
-    explicit Index(std::filesystem::path path);
+    explicit Index(std::filesystem::path path, std::uint64_t num_buckets = 1'000'000);
 
     [[nodiscard]]
     std::optional<std::uint64_t> find(const std::string& key) const;
