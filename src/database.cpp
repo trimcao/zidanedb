@@ -1,5 +1,6 @@
 #include "zidanedb/database.h"
 #include "index.h"
+#include "utils.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -10,35 +11,6 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
-
-namespace {
-
-void write_string(std::ostream& stream, const std::string& s) {
-    const std::uint32_t length = static_cast<std::uint32_t>(s.size());
-    stream.write(reinterpret_cast<const char*>(&length), sizeof(length));
-    stream.write(s.data(), static_cast<std::streamsize>(s.size()));
-}
-
-bool read_string(std::istream& stream, std::string& result) {
-    std::uint32_t length = {};
-    if (!stream.read(reinterpret_cast<char*>(&length), sizeof(length))) {
-        return false;
-    }
-
-    // assume that length == 0 means the key is deleted
-    if (length == 0)
-        return false;
-
-    result.resize(length);
-
-    if (!stream.read(result.data(), static_cast<std::streamsize>(length))) {
-        return false;
-    }
-
-    return true;
-}
-
-} // namespace
 
 namespace zidanedb {
 
@@ -73,7 +45,7 @@ std::optional<std::string> Database::get(const std::string& key) const {
     }
 
     // try to read the val
-    if (!read_string(file, val)) {
+    if (!utils::read_string(file, val)) {
         return std::nullopt;
     }
 
@@ -95,14 +67,14 @@ void Database::put(std::string key, std::string val) {
 
         // assumption: the last write wins,
         // the last value of the key stays
-        write_string(file, key);
+        utils::write_string(file, key);
         const auto position = file.tellp();
         if (position == std::ostream::pos_type(-1)) {
             throw std::runtime_error{"tellp() failed"};
         }
 
         db_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(position));
-        write_string(file, val);
+        utils::write_string(file, val);
         file.flush();
     } catch (const std::ios_base::failure& error) {
         throw std::runtime_error{"Could not write database file: " + db_path_.string()};
@@ -125,8 +97,8 @@ bool Database::erase(const std::string& key) {
             file.exceptions(std::ios::failbit | std::ios::badbit);
 
             // assumption: empty value means the key is deleted
-            write_string(file, key);
-            write_string(file, "");
+            utils::write_string(file, key);
+            utils::write_string(file, "");
             file.flush();
 
         } catch (const std::ios_base::failure& error) {

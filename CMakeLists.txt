@@ -18,6 +18,7 @@ add_library(zidanedb
     src/index.h
     src/index.cpp
     src/utils.h
+    src/utils.cpp
 )
 
 target_include_directories(zidanedb

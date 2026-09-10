@@ -5,7 +5,6 @@
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <unordered_map>
 
 namespace zidanedb {
 
