@@ -142,6 +142,7 @@ void Index::set(std::string key, std::uint64_t db_offset) {
     // strategy: use a persistent hash map
 
     std::uint64_t bucket = fnv1a(key) % num_buckets_;
+
     std::uint64_t header_size = magic_.size() + sizeof(std::uint32_t) + sizeof(std::uint64_t);
     std::uint64_t bucket_offset = header_size + bucket * sizeof(std::uint64_t);
 
@@ -197,6 +198,7 @@ void Index::set(std::string key, std::uint64_t db_offset) {
             next_entry_offset = idx_chain_offset;
             file.seekp(0, std::ios::end);
             idx_chain_offset = file.tellp(); // get the idx_chain_offset for this key
+
             write_uint32(file, key.size());
             write_uint64(file, db_offset);
             write_uint64(file, next_entry_offset);
@@ -345,6 +347,12 @@ void Index::setup() {
     write_string(file, magic_);
     write_uint32(file, version_);
     write_uint64(file, num_buckets_);
+
+    // initialize the buckets
+    std::uint64_t empty = 0;
+    for (std::uint64_t i = 0; i < num_buckets_; ++i) {
+        write_uint64(file, empty);
+    }
 
     file.flush();
 }
