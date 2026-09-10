@@ -38,18 +38,6 @@ bool read_string(std::istream& stream, std::string& result) {
     return true;
 }
 
-bool read_uint64(std::istream& stream, std::uint64_t& result) {
-    if (!stream.read(reinterpret_cast<char*>(&result), sizeof(std::uint64_t))) {
-        return false;
-    }
-
-    return true;
-}
-
-void write_uint64(std::ostream& stream, const std::uint64_t n) {
-    stream.write(reinterpret_cast<const char*>(&n), sizeof(n));
-}
-
 } // namespace
 
 namespace zidanedb {

@@ -70,6 +70,9 @@ std::uint64_t fnv1a(std::string_view key) {
     return hash;
 }
 
+// return the number of bytes used by write_string() function above
+std::uint32_t string_size(std::string_view s) { return sizeof(std::uint32_t) + s.size(); }
+
 } // namespace
 
 namespace zidanedb {
@@ -85,8 +88,12 @@ Index::Index(std::filesystem::path path) {
 
 std::optional<std::uint64_t> Index::find(const std::string& key) const {
     std::uint64_t bucket = fnv1a(key) % num_buckets_;
-    std::uint64_t header_size = magic_.size() + sizeof(std::uint32_t) + sizeof(std::uint64_t);
+    std::uint64_t header_size = string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t);
     std::uint64_t bucket_offset = header_size + bucket * sizeof(std::uint64_t);
+
+    // std::cout << "header_size: " << header_size << '\n';
+    // std::cout << "num_buckets_: " << num_buckets_ << '\n';
+    // std::cout << "bucket num: " << bucket << '\n';
 
     try {
         std::fstream file{path_, std::ios::in | std::ios::binary};
@@ -102,6 +109,8 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
         file.seekg(bucket_offset);
         read_uint64(file, idx_chain_offset);
 
+        // std::cout << "idx_chain_offset: " << idx_chain_offset << '\n';
+
         // find the entry if it exists
         std::string k;
         std::uint64_t cur_entry_offset;
@@ -111,6 +120,7 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
         } else {
             cur_entry_offset = idx_chain_offset;
             while (cur_entry_offset) {
+                // std::cout << "cur_entry_offset: " << cur_entry_offset << '\n';
                 file.seekg(cur_entry_offset);
                 // TODO: error handling for the following reads
                 read_uint32(file, read_entry_header.key_length);
@@ -143,7 +153,7 @@ void Index::set(std::string key, std::uint64_t db_offset) {
 
     std::uint64_t bucket = fnv1a(key) % num_buckets_;
 
-    std::uint64_t header_size = magic_.size() + sizeof(std::uint32_t) + sizeof(std::uint64_t);
+    std::uint64_t header_size = string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t);
     std::uint64_t bucket_offset = header_size + bucket * sizeof(std::uint64_t);
 
     try {
@@ -223,7 +233,7 @@ bool Index::erase(const std::string& key) {
     bool retval = false;
 
     std::uint64_t bucket = fnv1a(key) % num_buckets_;
-    std::uint64_t header_size = magic_.size() + sizeof(std::uint32_t) + sizeof(std::uint64_t);
+    std::uint64_t header_size = string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t);
     std::uint64_t bucket_offset = header_size + bucket * sizeof(std::uint64_t);
 
     try {
@@ -359,7 +369,7 @@ void Index::setup() {
 
 std::uint64_t Index::get_start_entry_offset() {
     // magic + version + bucket_count + bucket_bytes
-    return magic_.size() + sizeof(std::uint32_t) + sizeof(std::uint64_t) +
+    return string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t) +
            num_buckets_ * sizeof(std::uint64_t);
 }
 
