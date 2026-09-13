@@ -120,3 +120,58 @@ the bucket index offset accordingly. This will be like a linked list deletion.
 Garbage will be left behind, but we can do compaction later.
 - Important: hash function must be stable. I need to choose a deterministic hash
 algorithm.
+
+## Gotchas
+
+- I incorrectly computed the header size because the string size actually includes its size (in my implementation).
+- The incorrect offset caused the number of buckets to be interpreted wrong, and the index file could not be read.
+- At first, I encountered another issue, and I thought it was because I did not initialize all empty buckets to 0.
+
+## Result
+
+My persistent hash index can be considered a success now.
+It can handle 10,000,000 entries in reasonable time.
+
+```
+❯ ./build-release/matrix perf-basic -n 1000000
+Database file: "/tmp/matrix-performance.zdb"
+Pairs:        1000000
+Put time:     3.29545 seconds
+Put rate:     303448 ops/second
+Load time:    1.9697e-05 seconds
+Verify time:  2.92101 seconds
+Get rate:     342347 ops/second
+File size:    29777780 bytes
+
+zidanedb on  main via △ v4.3.0 took 6s
+❯ ./build-release/matrix perf-basic -n 10000000
+Database file: "/tmp/matrix-performance.zdb"
+Pairs:        10000000
+Put time:     72.5276 seconds
+Put rate:     137878 ops/second
+Load time:    1.6231e-05 seconds
+Verify time:  69.8603 seconds
+Get rate:     143143 ops/second
+File size:    317777780 bytes
+
+zidanedb on  main via △ v4.3.0 took 2m27s
+```
+
+Good things:
+- Zero startup overhead.
+- Put and lookup time is dominated by the collision chain length now,
+not by the number of db entries.
+
+
+## New Metrics for my Index
+Have a new Matrix workload to explore the characteristics of my persistent
+hash index:
+- Number of empty buckets
+- Number of non-empty buckets
+- Average chain length
+- Maximum chain length
+- load factor (keys / buckets)
+
+Other todos:
+- Report index file size
+- Report total size (index size + db size)

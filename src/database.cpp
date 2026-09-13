@@ -14,6 +14,8 @@
 
 namespace zidanedb {
 
+enum class RecordType : std::uint8_t { Put = 1, Delete = 2 };
+
 Database::Database(std::filesystem::path path) {
     db_path_ = std::move(path);
     idx_path_ = db_path_;
@@ -35,6 +37,9 @@ Database::~Database() = default;
 std::optional<std::string> Database::get(const std::string& key) const {
     std::string val;
 
+    // assumption: to differentiate between existing key with empty value and
+    // deleted key, for now, we can rely on the index.
+    // Later, we can read the record type if needed.
     auto offset = index_->find(key);
     if (!offset) {
         return std::nullopt;
@@ -61,8 +66,6 @@ std::optional<std::string> Database::get(const std::string& key) const {
 }
 
 void Database::put(std::string key, std::string val) {
-    // TODO: decide what it means to have val equal to empty.
-
     // assume that we will keep appending even if new_val == current_val
 
     std::ofstream file;
@@ -75,6 +78,10 @@ void Database::put(std::string key, std::string val) {
 
         // assumption: the last write wins,
         // the last value of the key stays
+
+        // write the record type
+        utils::write_uint8(file, static_cast<std::uint8_t>(RecordType::Put));
+
         utils::write_string(file, key);
         const auto position = file.tellp();
         if (position == std::ostream::pos_type(-1)) {
@@ -104,7 +111,8 @@ bool Database::erase(const std::string& key) {
             file.open(db_path_, std::ios::binary | std::ios::app);
             file.exceptions(std::ios::failbit | std::ios::badbit);
 
-            // assumption: empty value means the key is deleted
+            // record type will determine this key is deleted
+            utils::write_uint8(file, static_cast<std::uint8_t>(RecordType::Delete));
             utils::write_string(file, key);
             utils::write_string(file, "");
             file.flush();

@@ -17,10 +17,6 @@ bool read_string(std::istream& stream, std::string& result) {
         return false;
     }
 
-    // assume that length == 0 means the key is deleted
-    if (length == 0)
-        return false;
-
     result.resize(length);
 
     if (!stream.read(result.data(), static_cast<std::streamsize>(length))) {
@@ -51,6 +47,18 @@ bool read_uint32(std::istream& stream, std::uint32_t& result) {
 }
 
 void write_uint32(std::ostream& stream, const std::uint32_t n) {
+    stream.write(reinterpret_cast<const char*>(&n), sizeof(n));
+}
+
+bool read_uint8(std::istream& stream, std::uint8_t& result) {
+    if (!stream.read(reinterpret_cast<char*>(&result), sizeof(std::uint8_t))) {
+        return false;
+    }
+
+    return true;
+}
+
+void write_uint8(std::ostream& stream, const std::uint8_t n) {
     stream.write(reinterpret_cast<const char*>(&n), sizeof(n));
 }
 

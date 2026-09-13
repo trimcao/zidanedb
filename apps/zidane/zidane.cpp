@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     get_command->add_option("key", get_key, "Key to retrieve")->required();
 
     std::string delete_key;
-    auto* delete_command = app.add_subcommand("delete", "Delete a value");
+    auto* delete_command = app.add_subcommand("del", "Delete a value");
     delete_command->add_option("key", delete_key, "Key to delete")->required();
 
     // The following means: only one subcommand could be used.
