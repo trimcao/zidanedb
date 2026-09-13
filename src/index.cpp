@@ -10,6 +10,14 @@
 #include <utility>
 namespace zidanedb {
 
+// The header of the index file is:
+// [magic][version][num_buckets]
+
+// The format of the index entry is:
+// [db_offset][next_entry][key_length][key_bytes]
+// Note: currently in the code, [key_length][key_bytes] is handled together
+// in write_string() and read_string() methods.
+
 Index::Index(std::filesystem::path path, std::uint64_t num_buckets) {
     path_ = std::move(path);
     num_buckets_ = num_buckets;
@@ -58,7 +66,6 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
                 // std::cout << "cur_entry_offset: " << cur_entry_offset << '\n';
                 file.seekg(cur_entry_offset);
                 // TODO: error handling for the following reads
-                utils::read_uint32(file, read_entry_header.key_length);
                 utils::read_uint64(file, read_entry_header.db_offset);
                 utils::read_uint64(file, read_entry_header.next_entry_offset);
                 utils::read_string(file, k);
@@ -82,8 +89,6 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
 }
 
 void Index::set(std::string key, std::uint64_t db_offset) {
-    // offsets_.insert_or_assign(key, db_offset);
-
     // strategy: use a persistent hash map
 
     std::uint64_t bucket = utils::fnv1a(key) % num_buckets_;
@@ -118,7 +123,6 @@ void Index::set(std::string key, std::uint64_t db_offset) {
             while (cur_entry_offset) {
                 file.seekg(cur_entry_offset);
                 // TODO: error handling for the following reads
-                utils::read_uint32(file, read_entry_header.key_length);
                 utils::read_uint64(file, read_entry_header.db_offset);
                 utils::read_uint64(file, read_entry_header.next_entry_offset);
                 utils::read_string(file, k);
@@ -136,8 +140,7 @@ void Index::set(std::string key, std::uint64_t db_offset) {
         if (existing_idx_entry_offset) {
             // overwrite an existing entry
             // we will only overwrite the db_offset part
-            // need to get past the key_length field
-            file.seekp(existing_idx_entry_offset + sizeof(std::uint32_t));
+            file.seekp(existing_idx_entry_offset);
             utils::write_uint64(file, db_offset);
         } else {
             // create a new entry, and insert at the head
@@ -145,7 +148,6 @@ void Index::set(std::string key, std::uint64_t db_offset) {
             file.seekp(0, std::ios::end);
             idx_chain_offset = file.tellp(); // get the idx_chain_offset for this key
 
-            utils::write_uint32(file, key.size());
             utils::write_uint64(file, db_offset);
             utils::write_uint64(file, next_entry_offset);
             utils::write_string(file, key);
@@ -164,8 +166,6 @@ void Index::set(std::string key, std::uint64_t db_offset) {
 }
 
 bool Index::erase(const std::string& key) {
-    // bool retval = offsets_.erase(key);
-
     bool retval = false;
 
     std::uint64_t bucket = utils::fnv1a(key) % num_buckets_;
@@ -204,7 +204,6 @@ bool Index::erase(const std::string& key) {
             while (cur_entry_offset) {
                 file.seekg(cur_entry_offset);
                 // TODO: error handling for the following reads
-                utils::read_uint32(file, read_entry_header.key_length);
                 utils::read_uint64(file, read_entry_header.db_offset);
                 utils::read_uint64(file, read_entry_header.next_entry_offset);
                 utils::read_string(file, k);
@@ -223,14 +222,14 @@ bool Index::erase(const std::string& key) {
         file.exceptions(std::ios::failbit | std::ios::badbit);
         if (existing_idx_entry_offset) {
             // make the db_offset field null so it's easier to check
-            file.seekp(existing_idx_entry_offset + sizeof(std::uint32_t));
+            file.seekp(existing_idx_entry_offset);
             utils::write_uint64(file, 0);
             // delete scenarios: delete at the head, delete in the middle
             next_entry_offset = read_entry_header.next_entry_offset;
             if (prev_entry_offset) {
                 // delete in the middle
                 // update the next entry offset for the prev_entry
-                file.seekp(prev_entry_offset + sizeof(std::uint32_t) + sizeof(std::uint64_t));
+                file.seekp(prev_entry_offset + sizeof(std::uint64_t));
                 utils::write_uint64(file, next_entry_offset);
             } else {
                 // delete the head

@@ -40,7 +40,6 @@ struct IndexEntry {
 };
 
 struct IndexEntryHeader {
-    std::uint32_t key_length;
     std::uint64_t db_offset;
     std::uint64_t next_entry_offset;
 };
