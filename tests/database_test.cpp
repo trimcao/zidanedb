@@ -431,3 +431,73 @@ TEST_CASE("overwrite in an index collision chain") {
         REQUIRE(*result == "value3");
     }
 }
+
+TEST_CASE("keys with empty values") {
+    TemporaryDatabaseFile file{"keys-with-empty-values.zdb"};
+
+    REQUIRE_FALSE(std::filesystem::exists(file.path()));
+    REQUIRE_FALSE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database database{file.path()};
+        database.put("key1", "");
+        database.put("key2", "");
+        database.put("key3", "");
+    }
+
+    REQUIRE(std::filesystem::exists(file.path()));
+    REQUIRE(std::filesystem::exists(file.idx_path()));
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "");
+
+        reopened.put("key1", "");
+        reopened.put("key2", "");
+    }
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "");
+
+        reopened.put("key1", "value111");
+    }
+
+    {
+        zidanedb::Database reopened{file.path()};
+
+        auto result = reopened.get("key1");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "value111");
+
+        result = reopened.get("key2");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "");
+
+        result = reopened.get("key3");
+        REQUIRE(result.has_value());
+        REQUIRE(*result == "");
+    }
+}
