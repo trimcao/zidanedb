@@ -8,6 +8,17 @@
 
 namespace zidanedb {
 
+struct EntryLocation {
+    // entry offset for a given key
+    std::uint64_t entry_offset;
+    // prev entry offset of the found entry offset
+    std::uint64_t prev_entry_offset;
+    // bucket offset (location of the bucket given the hash value)
+    std::uint64_t bucket_offset;
+    // start of the collision chain (the offset indicated by the bucket)
+    std::uint64_t chain_offset;
+};
+
 class Index {
   public:
     explicit Index(std::filesystem::path path, std::uint64_t num_buckets = 1'000'000);
@@ -31,6 +42,7 @@ class Index {
     void load();
     void setup();
     std::uint64_t get_start_entry_offset();
+    EntryLocation find_entry_offset(const std::string& key) const;
 };
 
 struct IndexEntry {
