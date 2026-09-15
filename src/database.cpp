@@ -99,7 +99,7 @@ void Database::put(std::string key, std::string val) {
 
 bool Database::erase(const std::string& key) {
     // check if key exists
-    auto exist = get(key);
+    auto exist = index_->find(key);
 
     // approach:
     // keep writing to the db file

@@ -6,6 +6,10 @@ reliable file I/O and smaller, reusable helpers.
 Work through the items below one at a time. The first five address correctness
 and error handling; the remaining items improve organization and maintainability.
 
+Checklist updated after reviewing the current changes on 2026-09-15. The issue
+descriptions below preserve the original review context; checked boxes indicate
+implemented cleanup. Regression-test additions are tracked separately.
+
 ## 1. Check Every Index Read
 
 In [`src/index.cpp`](../src/index.cpp), `find_entry_offset()` and other read paths
@@ -19,9 +23,9 @@ means "could not read the database." Currently,
 [`Database::get()`](../src/database.cpp) also returns `nullopt` for file errors,
 making these cases indistinguishable.
 
-- [ ] Check every seek and read, or enable stream exceptions where appropriate.
-- [ ] Distinguish a missing key from an I/O error or invalid record.
-- [ ] Apply the same error-handling contract throughout `Database` and `Index`.
+- [x] Check every seek and read, or enable stream exceptions where appropriate.
+- [x] Distinguish a missing key from an I/O error or invalid record.
+- [x] Apply the same error-handling contract throughout `Database` and `Index`.
 
 ## 2. Make Successful Construction Guarantee a Usable Index
 
@@ -33,9 +37,9 @@ Validate the magic, supported version, positive bucket count, and sufficient
 file size. Reject zero buckets in the constructor: otherwise,
 `hash % num_buckets_` divides by zero.
 
-- [ ] Validate the requested bucket count when creating an index.
-- [ ] Validate the magic, version, bucket count, and file size when loading one.
-- [ ] Throw when loading or initialization fails, including failed writes and
+- [x] Validate the requested bucket count when creating an index.
+- [x] Validate the magic, version, bucket count, and file size when loading one.
+- [x] Throw when loading or initialization fails, including failed writes and
   flushes during setup.
 
 ## 3. Review the Ordering in `Database::erase()`
@@ -49,8 +53,8 @@ append the deletion record, then update the index. This improves ordinary
 failure behavior; making both files recover consistently after interruption is
 a separate recovery task.
 
-- [ ] Check whether the key exists before changing either file.
-- [ ] Append and flush the deletion record before updating the index.
+- [x] Check whether the key exists before changing either file.
+- [x] Append and flush the deletion record before updating the index.
 - [ ] Document the remaining failure cases between the two writes for the
   future recovery design.
 
@@ -63,10 +67,10 @@ be NaN.
 Define the empty average as zero. Also document that this average measures
 chain length among occupied buckets, whereas load factor includes every bucket.
 
-- [ ] Return an average chain length of zero when there are no occupied buckets.
-- [ ] Document the meaning of `avg_chain_length` in
+- [x] Return an average chain length of zero when there are no occupied buckets.
+- [x] Document the meaning of `avg_chain_length` in
   [`IndexStats`](../include/zidanedb/index_stats.h).
-- [ ] Consider accumulating the entry count as an integer, then converting it
+- [x] Consider accumulating the entry count as an integer, then converting it
   for the final average calculation.
 
 ## 5. Make the Database/Index Filename Relationship Unambiguous
@@ -96,9 +100,9 @@ Lookup and statistics currently request write access despite only reading.
 Use an input stream for those operations and make `Index::stats()` `const`.
 This also lets reads work when the index file is read-only.
 
-- [ ] Pass an already-open stream into the entry lookup helper.
-- [ ] Use input-only access for lookup and statistics.
-- [ ] Mark `Index::stats()` as `const` in its declaration and definition.
+- [x] Pass an already-open stream into the entry lookup helper.
+- [x] Use input-only access for lookup and statistics.
+- [x] Mark `Index::stats()` as `const` in its declaration and definition.
 
 ## 7. Centralize Binary-Format Details
 
@@ -106,6 +110,12 @@ Header-size calculations and entry-reading sequences repeat in
 [`src/index.cpp`](../src/index.cpp). Small helpers such as `header_size()` and
 `read_entry()` would give the code one place to maintain the layout and check
 errors.
+
+Current progress: `header_size()` exists and is used by `load()`, but the
+calculation still repeats in `find_entry_offset()`, `stats()`, and
+`index_size_before_entries()`. Make `header_size()` a `const` member so the
+read-only methods can reuse it. The centralization checkbox stays open until
+the remaining duplication is removed.
 
 In [`src/utils.cpp`](../src/utils.cpp), `string_size()` narrows the serialized
 size to `uint32_t`. Use a sufficiently wide size type, and separately validate
@@ -125,7 +135,7 @@ before allocating memory when reading.
 - [ ] Include `"utils.h"` in [`src/utils.cpp`](../src/utils.cpp), so the compiler
   checks definitions against declarations.
 - [ ] Include `<string_view>` explicitly in [`src/utils.h`](../src/utils.h).
-- [ ] Remove the unused `IndexEntry` and `get_start_entry_offset()` in
+- [ ] Remove the unused `IndexEntry` and `index_size_before_entries()` in
   [`src/index.h`](../src/index.h) if they are not needed yet.
 - [ ] Remove the unused `WorkloadOptions` in
   [`apps/matrix/matrix.h`](../apps/matrix/matrix.h) if it is not needed yet.
@@ -158,7 +168,23 @@ checks as well.
 
 ## Review Verification
 
-The review included a syntax-only compiler check on the core sources. It passed,
-with conversion warnings in statistics and `string_size()`. Tests and workloads
-that create database files were not run during the review. These notes describe
-suggested work; they do not indicate that the cleanup has been implemented.
+The follow-up review on 2026-09-15 confirmed the four fixes requested in the
+previous review:
+
+- `setup()` enables stream exceptions before writing and flushing.
+- `load()` checks bucket capacity using division, avoiding multiplication
+  overflow. Failed header reads are rejected before this check.
+- `constants.h` includes `<cstdint>` and has an include guard.
+- `Database::erase()` checks existence through the index without reading the
+  entire stored value.
+
+Verification performed:
+
+- Rebuilt `database_tests` and ran CTest: all 15 existing tests passed. Test
+  database files were isolated in a fresh temporary directory.
+- The core sources passed syntax-only compilation with additional warnings
+  enabled. Conversion warnings remain in statistics and `string_size()`.
+- A standalone compiler check including `constants.h` twice passed.
+- No source or test files were edited during the review. The test additions
+  listed above remain unchecked because they have not been added to the suite;
+  failure-injection tests and workloads were not run.

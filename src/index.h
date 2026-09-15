@@ -33,7 +33,7 @@ class Index {
     [[nodiscard]]
     bool erase(const std::string& key);
 
-    IndexStats stats();
+    IndexStats stats() const;
 
   private:
     std::filesystem::path path_;
@@ -45,8 +45,9 @@ class Index {
 
     void load();
     void setup();
-    std::uint64_t get_index_size_before_entries();
-    EntryLocation find_entry_offset(const std::string& key) const;
+    std::uint64_t index_size_before_entries() const;
+    std::uint64_t header_size() const;
+    EntryLocation find_entry_offset(std::istream& file, const std::string& key) const;
 };
 
 struct IndexEntry {
