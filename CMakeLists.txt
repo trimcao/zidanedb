@@ -15,6 +15,7 @@ add_subdirectory(vendor/CLI11 EXCLUDE_FROM_ALL)
 add_library(zidanedb
     src/database.cpp
     include/zidanedb/database.h
+    include/zidanedb/index_stats.h
     src/index.h
     src/index.cpp
     src/utils.h
@@ -72,6 +73,7 @@ add_executable(matrix
     apps/matrix/perf_large_values.cpp
     apps/matrix/perf_overwrite.cpp
     apps/matrix/utils.cpp
+    apps/matrix/hash_collision.cpp
 )
 
 target_link_libraries(matrix

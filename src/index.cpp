@@ -263,4 +263,63 @@ std::uint64_t Index::get_start_entry_offset() {
            num_buckets_ * sizeof(std::uint64_t);
 }
 
+IndexStats Index::stats() {
+    IndexStats result;
+    result.num_buckets = num_buckets_;
+    result.empty_buckets = 0;
+    result.non_empty_buckets = 0;
+    result.avg_chain_length = 0;
+    result.max_chain_length = 0;
+
+    std::uint64_t header_size =
+        utils::string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t);
+
+    try {
+        std::fstream file{path_, std::ios::in | std::ios::out | std::ios::binary};
+        if (!file) {
+            throw std::runtime_error{"Could not open index file: " + path_.string()};
+        }
+
+        std::uint64_t idx_chain_offset = 0; // start of the colission chain
+        IndexEntryHeader read_entry_header;
+
+        std::uint64_t bucket_offset;
+        for (std::uint64_t i = 0; i < num_buckets_; i++) {
+            bucket_offset = header_size + i * sizeof(std::uint64_t);
+            file.seekg(bucket_offset);
+            utils::read_uint64(file, idx_chain_offset);
+
+            // go through the chain
+            std::uint64_t chain_length = 0;
+            std::uint64_t cur_entry_offset;
+            std::string k;
+            if (!idx_chain_offset) {
+                // no key found
+                result.empty_buckets++;
+            } else {
+                result.non_empty_buckets++;
+                cur_entry_offset = idx_chain_offset;
+                while (cur_entry_offset) {
+                    file.seekg(cur_entry_offset);
+                    utils::read_uint64(file, read_entry_header.db_offset);
+                    utils::read_uint64(file, read_entry_header.next_entry_offset);
+                    utils::read_string(file, k);
+                    chain_length++;
+                    cur_entry_offset = read_entry_header.next_entry_offset;
+                }
+            }
+            result.avg_chain_length += chain_length;
+            if (result.max_chain_length < chain_length) {
+                result.max_chain_length = chain_length;
+            }
+        }
+
+    } catch (const std::ios_base::failure& error) {
+        throw std::runtime_error{"Could not read index file: " + path_.string()};
+    }
+
+    result.avg_chain_length = result.avg_chain_length / result.non_empty_buckets;
+    return result;
+}
+
 } // namespace zidanedb

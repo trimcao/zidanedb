@@ -1,6 +1,8 @@
 #ifndef ZIDANEDB_INDEX_H
 #define ZIDANEDB_INDEX_H
 
+#include "zidanedb/index_stats.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -30,6 +32,8 @@ class Index {
 
     [[nodiscard]]
     bool erase(const std::string& key);
+
+    IndexStats stats();
 
   private:
     std::filesystem::path path_;

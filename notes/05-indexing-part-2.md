@@ -175,3 +175,46 @@ hash index:
 Other todos:
 - Report index file size
 - Report total size (index size + db size)
+
+```
+❯ ./build/matrix hash-collision -n 1000000 -b 1000000
+Database file: "/tmp/matrix-hash-collision.zdb"
+Pairs:           1000000
+Put time:        3.97739 seconds
+Put rate:        251421 ops/second
+Load time:       2.6179e-05 seconds
+Verify time:     4.17588 seconds
+Get rate:        239471 ops/second
+DB file size:    30.7778 megabytes
+Index file size: 37.8889 megabytes
+Total file size: 68.6667 megabytes
+
+Empty buckets:     363790
+Non-empty buckets: 636210
+Avg chain length:  1.57181
+Max chain length:  7
+Load factor:       1
+
+zidanedb on  main [!?⇡] via △ v4.3.0 took 9s
+
+❯ ./build/matrix hash-collision -n 10000000 -b 1000000
+Database file: "/tmp/matrix-hash-collision.zdb"
+Pairs:           10000000
+Put time:        81.2825 seconds
+Put rate:        123028 ops/second
+Load time:       2.68e-05 seconds
+Verify time:     82.0123 seconds
+Get rate:        121933 ops/second
+DB file size:    327.778 megabytes
+Index file size: 316.889 megabytes
+Total file size: 644.667 megabytes
+
+Empty buckets:     56
+Non-empty buckets: 999944
+Avg chain length:  10
+Max chain length:  26
+Load factor:       10
+
+zidanedb on  main [!?⇡] via △ v4.3.0 took 3m2s
+```
+

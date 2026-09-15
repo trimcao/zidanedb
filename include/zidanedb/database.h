@@ -1,7 +1,11 @@
 #ifndef ZIDANEDB_DATABASE_H
 #define ZIDANEDB_DATABASE_H
 
+#include "zidanedb/index_stats.h"
+
+#include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -31,6 +35,8 @@ class Database {
     // erase() reports whether the key existed.
     [[nodiscard]]
     bool erase(const std::string& key);
+
+    IndexStats get_index_stats() const;
 };
 
 } // namespace zidanedb

@@ -125,4 +125,6 @@ bool Database::erase(const std::string& key) {
     return retval;
 }
 
+IndexStats Database::get_index_stats() const { return index_->stats(); }
+
 } // namespace zidanedb

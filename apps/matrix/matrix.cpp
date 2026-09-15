@@ -39,6 +39,15 @@ int main(int argc, char** argv) {
     perf_overwrite->add_option("-o,--overwrites", overwrite_times, "Overwrite times of each key")
         ->check(CLI::PositiveNumber);
 
+    std::size_t hash_collision_pair_count = 1'000'000;
+    std::size_t hash_collision_bucket_count = 1'000'000;
+    auto* hash_collision = app.add_subcommand(
+        "hash-collision", "Benchmark for hash collisions in a persistent hash index");
+    hash_collision->add_option("-n,--pairs", hash_collision_pair_count, "Number of pairs")
+        ->check(CLI::PositiveNumber);
+    hash_collision->add_option("-b,--buckets", hash_collision_bucket_count, "Number of buckets")
+        ->check(CLI::PositiveNumber);
+
     app.require_subcommand(1, 1);
 
     try {
@@ -62,6 +71,11 @@ int main(int argc, char** argv) {
 
         if (*perf_overwrite) {
             return matrix::tests::run_perf_overwrite(overwrite_pair_count, overwrite_times);
+        }
+
+        if (*hash_collision) {
+            return matrix::tests::run_hash_collision(hash_collision_pair_count,
+                                                     hash_collision_bucket_count);
         }
     } catch (const std::exception& error) {
         std::cerr << "matrix: " << error.what() << '\n';
