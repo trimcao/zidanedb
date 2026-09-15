@@ -48,18 +48,16 @@ std::optional<std::string> Database::get(const std::string& key) const {
     // read the value from the db file
     std::ifstream file{db_path_, std::ios::binary};
     if (!file) {
-        std::cerr << "Could not open the file\n";
-        return std::nullopt;
+        throw std::runtime_error("Could not open the file");
     }
     file.seekg(*offset, std::ios::beg);
     if (!file) {
-        std::cerr << "Seek failed\n";
-        return std::nullopt;
+        throw std::runtime_error("Seek failed");
     }
 
     // try to read the val
     if (!utils::read_string(file, val)) {
-        return std::nullopt;
+        throw std::runtime_error("Cannot read database entry value");
     }
 
     return val;

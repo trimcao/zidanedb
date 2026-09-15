@@ -41,7 +41,12 @@ EntryLocation Index::find_entry_offset(const std::string& key) const {
         IndexEntryHeader read_entry_header;
 
         file.seekg(bucket_offset);
-        utils::read_uint64(file, idx_chain_offset);
+        if (!file) {
+            throw std::runtime_error{"seek failed"};
+        }
+        if (!utils::read_uint64(file, idx_chain_offset)) {
+            throw std::runtime_error{"could not read chain_offset from bucket"};
+        }
 
         // find the entry if it exists
         std::string k;
@@ -55,10 +60,18 @@ EntryLocation Index::find_entry_offset(const std::string& key) const {
             cur_entry_offset = idx_chain_offset;
             while (cur_entry_offset) {
                 file.seekg(cur_entry_offset);
-                // TODO: error handling for the following reads
-                utils::read_uint64(file, read_entry_header.db_offset);
-                utils::read_uint64(file, read_entry_header.next_entry_offset);
-                utils::read_string(file, k);
+                if (!file) {
+                    throw std::runtime_error{"seek failed"};
+                }
+                if (!utils::read_uint64(file, read_entry_header.db_offset)) {
+                    throw std::runtime_error{"could not read db offset"};
+                }
+                if (!utils::read_uint64(file, read_entry_header.next_entry_offset)) {
+                    throw std::runtime_error{"could not read next entry offset"};
+                }
+                if (!utils::read_string(file, k)) {
+                    throw std::runtime_error{"could not read key"};
+                }
                 if (key == k) {
                     existing_idx_entry_offset = cur_entry_offset;
                     break;
@@ -68,12 +81,11 @@ EntryLocation Index::find_entry_offset(const std::string& key) const {
             }
         }
 
-        if (!existing_idx_entry_offset)
+        if (existing_idx_entry_offset == 0)
             prev_entry_offset = 0;
 
         return EntryLocation{existing_idx_entry_offset, prev_entry_offset, bucket_offset,
                              idx_chain_offset};
-
     } catch (const std::ios_base::failure& error) {
         throw std::runtime_error{"Could not read index file: " + path_.string()};
     }
@@ -90,7 +102,10 @@ Index::Index(std::filesystem::path path, std::uint64_t num_buckets) {
 }
 
 std::optional<std::uint64_t> Index::find(const std::string& key) const {
-    EntryLocation offsets = find_entry_offset(key);
+    auto offsets = find_entry_offset(key);
+    if (offsets.entry_offset == 0) {
+        return std::nullopt;
+    }
 
     try {
         IndexEntryHeader read_entry_header;
@@ -100,13 +115,14 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
             throw std::runtime_error{"Could not open index file: " + path_.string()};
         }
 
-        if (offsets.entry_offset) {
-            file.seekg(offsets.entry_offset);
-            utils::read_uint64(file, read_entry_header.db_offset);
-            return read_entry_header.db_offset;
-        } else {
-            return std::nullopt;
+        file.seekg(offsets.entry_offset);
+        if (!file) {
+            throw std::runtime_error{"seek failed"};
         }
+        if (!utils::read_uint64(file, read_entry_header.db_offset)) {
+            throw std::runtime_error{"cannot read db offset"};
+        }
+        return read_entry_header.db_offset;
 
     } catch (const std::ios_base::failure& error) {
         throw std::runtime_error{"Could not read index file: " + path_.string()};
@@ -114,7 +130,7 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
 }
 
 void Index::set(std::string key, std::uint64_t db_offset) {
-    EntryLocation offsets = find_entry_offset(key);
+    auto offsets = find_entry_offset(key);
 
     try {
         std::fstream file{path_, std::ios::in | std::ios::out | std::ios::binary};
@@ -130,11 +146,17 @@ void Index::set(std::string key, std::uint64_t db_offset) {
             // overwrite an existing entry
             // we will only overwrite the db_offset part
             file.seekp(offsets.entry_offset);
+            if (!file) {
+                throw std::runtime_error{"seek failed"};
+            }
             utils::write_uint64(file, db_offset);
         } else {
             // create a new entry, and insert at the head
             next_entry_offset = offsets.chain_offset;
             file.seekp(0, std::ios::end);
+            if (!file) {
+                throw std::runtime_error{"seek failed"};
+            }
             offsets.chain_offset = file.tellp(); // get the idx_chain_offset for this key
 
             utils::write_uint64(file, db_offset);
@@ -145,6 +167,9 @@ void Index::set(std::string key, std::uint64_t db_offset) {
 
             // update the idx_chain_offset (the head offset, read from the bucket)
             file.seekp(offsets.bucket_offset);
+            if (!file) {
+                throw std::runtime_error{"seek failed"};
+            }
             utils::write_uint64(file, offsets.chain_offset);
         }
         file.flush();
@@ -155,8 +180,6 @@ void Index::set(std::string key, std::uint64_t db_offset) {
 }
 
 bool Index::erase(const std::string& key) {
-    bool retval = false;
-
     EntryLocation offsets = find_entry_offset(key);
 
     try {
@@ -170,38 +193,47 @@ bool Index::erase(const std::string& key) {
         // remove index entry from the linked list
         // note: garbage will be left behind
         file.exceptions(std::ios::failbit | std::ios::badbit);
-        if (offsets.entry_offset) {
+        if (offsets.entry_offset == 0) {
+            return false;
+        } else {
             // make the db_offset field null so it's easier to check
             file.seekp(offsets.entry_offset);
+            if (!file) {
+                throw std::runtime_error{"seek failed"};
+            }
             utils::write_uint64(file, 0);
 
             // delete scenarios: delete at the head, delete in the middle
             file.seekg(offsets.entry_offset + sizeof(std::uint64_t));
+            if (!file) {
+                throw std::runtime_error{"seek failed"};
+            }
             utils::read_uint64(file, next_entry_offset);
 
             if (offsets.prev_entry_offset) {
                 // delete in the middle
                 // update the next entry offset for the prev_entry
                 file.seekp(offsets.prev_entry_offset + sizeof(std::uint64_t));
+                if (!file) {
+                    throw std::runtime_error{"seek failed"};
+                }
                 utils::write_uint64(file, next_entry_offset);
             } else {
                 // delete the head
                 // update the idx_chain_offset (the head offset, read from the bucket)
                 file.seekp(offsets.bucket_offset);
+                if (!file) {
+                    throw std::runtime_error{"seek failed"};
+                }
                 utils::write_uint64(file, next_entry_offset);
             }
-
-            retval = true;
-        } else {
-            retval = false;
+            file.flush();
+            return true;
         }
-        file.flush();
 
     } catch (const std::ios_base::failure& error) {
         throw std::runtime_error{"Could not update index file: " + path_.string()};
     }
-
-    return retval;
 }
 
 void Index::load() {
@@ -238,23 +270,26 @@ void Index::setup() {
     magic_ = "ZIDANEDBINDEX026";
     version_ = 1;
 
-    std::ofstream file{path_, std::ios::binary};
-    if (!file) {
-        std::cerr << "Could not open the file " << path_.string() << '\n';
-        return;
+    try {
+        std::ofstream file{path_, std::ios::binary};
+        if (!file) {
+            throw std::runtime_error("Could not open the file " + path_.string());
+        }
+
+        utils::write_string(file, magic_);
+        utils::write_uint32(file, version_);
+        utils::write_uint64(file, num_buckets_);
+
+        // initialize the buckets
+        std::uint64_t empty = 0;
+        for (std::uint64_t i = 0; i < num_buckets_; ++i) {
+            utils::write_uint64(file, empty);
+        }
+
+        file.flush();
+    } catch (const std::ios_base::failure& error) {
+        throw std::runtime_error{"Could not update index file: " + path_.string()};
     }
-
-    utils::write_string(file, magic_);
-    utils::write_uint32(file, version_);
-    utils::write_uint64(file, num_buckets_);
-
-    // initialize the buckets
-    std::uint64_t empty = 0;
-    for (std::uint64_t i = 0; i < num_buckets_; ++i) {
-        utils::write_uint64(file, empty);
-    }
-
-    file.flush();
 }
 
 std::uint64_t Index::get_start_entry_offset() {

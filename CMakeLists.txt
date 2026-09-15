@@ -20,6 +20,7 @@ add_library(zidanedb
     src/index.cpp
     src/utils.h
     src/utils.cpp
+    src/constants.h
 )
 
 target_include_directories(zidanedb
