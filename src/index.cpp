@@ -310,8 +310,10 @@ IndexStats Index::stats() {
     result.num_buckets = num_buckets_;
     result.empty_buckets = 0;
     result.non_empty_buckets = 0;
-    result.avg_chain_length = 0;
+    result.avg_chain_length = 0.0;
     result.max_chain_length = 0;
+
+    std::uint64_t total_length = 0;
 
     std::uint64_t header_size =
         utils::string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t);
@@ -350,7 +352,7 @@ IndexStats Index::stats() {
                     cur_entry_offset = read_entry_header.next_entry_offset;
                 }
             }
-            result.avg_chain_length += chain_length;
+            total_length += chain_length;
             if (result.max_chain_length < chain_length) {
                 result.max_chain_length = chain_length;
             }
@@ -360,7 +362,11 @@ IndexStats Index::stats() {
         throw std::runtime_error{"Could not read index file: " + path_.string()};
     }
 
-    result.avg_chain_length = result.avg_chain_length / result.non_empty_buckets;
+    // if non_empty_buckets == 0, avg_chain_length = 0
+    if (result.non_empty_buckets > 0) {
+        result.avg_chain_length = (double)total_length / result.non_empty_buckets;
+    }
+
     return result;
 }
 
