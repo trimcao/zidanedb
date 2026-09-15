@@ -1,4 +1,5 @@
 #include "index.h"
+#include "constants.h"
 #include "utils.h"
 #include <cstdint>
 #include <filesystem>
@@ -6,6 +7,7 @@
 #include <ios>
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 namespace zidanedb {
@@ -92,6 +94,10 @@ EntryLocation Index::find_entry_offset(const std::string& key) const {
 }
 
 Index::Index(std::filesystem::path path, std::uint64_t num_buckets) {
+    if (num_buckets == 0) {
+        throw std::runtime_error("Number of buckets must be a positive number");
+    }
+
     path_ = std::move(path);
     num_buckets_ = num_buckets;
     if (std::filesystem::exists(path_)) {
@@ -238,26 +244,27 @@ bool Index::erase(const std::string& key) {
 
 void Index::load() {
     if (!std::filesystem::exists(path_)) {
-        return;
+        throw std::runtime_error("Index file does not exist");
     }
 
     std::ifstream file{path_, std::ios::binary};
     if (!file) {
-        std::cerr << "Could not open the file " << path_.string() << '\n';
-        return;
+        throw std::runtime_error("Could not open index file: " + path_.string());
     }
 
-    if (!utils::read_string(file, magic_)) {
-        std::cerr << "This is not a ZidaneDB Index file\n";
-        return;
+    if (!utils::read_string(file, magic_) || (magic_ != INDEX_MAGIC)) {
+        throw std::runtime_error("Invalid ZidaneDB Index file");
     }
-    if (!utils::read_uint32(file, version_)) {
-        std::cerr << "Cannot read version of the Index file\n";
-        return;
+    if (!utils::read_uint32(file, version_) || (version_ != INDEX_VERSION)) {
+        throw std::runtime_error("Unsupported ZidaneDB Index version");
     }
-    if (!utils::read_uint64(file, num_buckets_)) {
-        std::cerr << "Cannot read number of buckets in the Index file\n";
-        return;
+    if (!utils::read_uint64(file, num_buckets_) || (num_buckets_ == 0)) {
+        throw std::runtime_error("Invalid ZidaneDB Index number of buckets");
+    }
+
+    // check file size
+    if (std::filesystem::file_size(path_) < get_index_size_before_entries()) {
+        throw std::runtime_error("ZidaneDB Index file size is smaller than required");
     }
 }
 
@@ -267,8 +274,8 @@ void Index::setup() {
     }
 
     // hardcode some values here, will make it more formal later
-    magic_ = "ZIDANEDBINDEX026";
-    version_ = 1;
+    magic_ = INDEX_MAGIC;
+    version_ = INDEX_VERSION;
 
     try {
         std::ofstream file{path_, std::ios::binary};
@@ -292,7 +299,7 @@ void Index::setup() {
     }
 }
 
-std::uint64_t Index::get_start_entry_offset() {
+std::uint64_t Index::get_index_size_before_entries() {
     // magic + version + bucket_count + bucket_bytes
     return utils::string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t) +
            num_buckets_ * sizeof(std::uint64_t);

@@ -98,13 +98,14 @@ void Database::put(std::string key, std::string val) {
 }
 
 bool Database::erase(const std::string& key) {
-    bool retval = index_->erase(key);
+    // check if key exists
+    auto exist = get(key);
 
     // approach:
     // keep writing to the db file
     std::ofstream file;
     // only update the db file if the key is deleted
-    if (retval) {
+    if (exist) {
         try {
             file.open(db_path_, std::ios::binary | std::ios::app);
             file.exceptions(std::ios::failbit | std::ios::badbit);
@@ -118,9 +119,14 @@ bool Database::erase(const std::string& key) {
         } catch (const std::ios_base::failure& error) {
             throw std::runtime_error{"Could not write database file: " + db_path_.string()};
         }
+
+        // update index
+        if (!index_->erase(key)) {
+            throw std::runtime_error("Key " + key + " exists in db file but not in index file");
+        }
     }
 
-    return retval;
+    return exist.has_value();
 }
 
 IndexStats Database::get_index_stats() const { return index_->stats(); }

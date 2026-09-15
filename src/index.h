@@ -45,7 +45,7 @@ class Index {
 
     void load();
     void setup();
-    std::uint64_t get_start_entry_offset();
+    std::uint64_t get_index_size_before_entries();
     EntryLocation find_entry_offset(const std::string& key) const;
 };
 
