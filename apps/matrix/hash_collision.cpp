@@ -83,7 +83,6 @@ int run_hash_collision(std::size_t pair_count, std::size_t bucket_count) {
     std::cout << "Total file size: " << (double)(db_size + idx_size) / 1'000'000 << " megabytes\n";
     std::cout << '\n';
 
-    // get hash collision data
     auto stats = reopened.get_index_stats();
 
     std::cout << "Empty buckets:     " << stats.empty_buckets << '\n';

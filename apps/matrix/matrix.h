@@ -6,7 +6,6 @@
 #include <filesystem>
 namespace matrix::tests {
 
-// note: will use WorkloadOptions later
 struct WorkloadOptions {
     std::size_t pair_count{10'000};
     std::uint64_t seed{0x51DA7E};

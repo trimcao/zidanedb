@@ -16,19 +16,28 @@
 
 namespace zidanedb {
 
+// Records: [type:u8][key_length:u32][key_bytes][value_length:u32][value_bytes].
 enum class RecordType : std::uint8_t { Put = 1, Delete = 2 };
 
 Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
     : db_path_{std::move(path)}, idx_path_{db_path_} {
 
-    // Database filename must end in .zdb
-    // Index file name will be database filename plus .idx
+    // Database names must end in .zdb; the companion index appends .idx.
     if (db_path_.extension() != ".zdb") {
         throw std::runtime_error("ZidaneDB database file must end with .zdb");
     }
 
     idx_path_ += ".idx";
+    // check if the db file exists but the index file does not
+    if (std::filesystem::exists(db_path_) && !std::filesystem::exists(idx_path_)) {
+        throw std::runtime_error("DB file exists but Index file does not exist");
+    }
+
     index_ = std::make_unique<Index>(idx_path_, num_index_buckets);
+    // check if the db file does not exist but the index file has contents
+    if (!std::filesystem::exists(db_path_) && !index_->empty()) {
+        throw std::runtime_error("DB file does not exist but Index file is not empty");
+    }
 }
 
 Database::~Database() = default;
@@ -36,15 +45,12 @@ Database::~Database() = default;
 std::optional<std::string> Database::get(const std::string& key) const {
     std::string val;
 
-    // assumption: to differentiate between existing key with empty value and
-    // deleted key, for now, we can rely on the index.
-    // Later, we can read the record type if needed.
+    // Index membership distinguishes a missing key from a stored empty value.
     auto offset = index_->find(key);
     if (!offset) {
         return std::nullopt;
     }
 
-    // read the value from the db file
     std::ifstream file{db_path_, std::ios::binary};
     if (!file) {
         throw std::runtime_error("Could not open the file");
@@ -54,7 +60,6 @@ std::optional<std::string> Database::get(const std::string& key) const {
         throw std::runtime_error("Seek failed");
     }
 
-    // try to read the val
     if (!utils::read_string(file, val, MAX_VALUE_SIZE)) {
         throw std::runtime_error("Cannot read database entry value");
     }
@@ -63,8 +68,7 @@ std::optional<std::string> Database::get(const std::string& key) const {
 }
 
 void Database::put(const std::string& key, const std::string& val) {
-    // assume that we will keep appending even if new_val == current_val
-
+    // Writes are append-only, even when replacing a value with the same contents.
     if (key.size() > MAX_KEY_SIZE) {
         throw std::runtime_error("Key size exceeds max allowed key size");
     }
@@ -75,15 +79,10 @@ void Database::put(const std::string& key, const std::string& val) {
     std::ofstream file;
     std::uint64_t db_offset;
 
-    // new approach: keep writing to the db file
     try {
         file.open(db_path_, std::ios::binary | std::ios::app);
         file.exceptions(std::ios::failbit | std::ios::badbit);
 
-        // assumption: the last write wins,
-        // the last value of the key stays
-
-        // write the record type
         utils::write_uint8(file, static_cast<std::uint8_t>(RecordType::Put));
 
         utils::write_string(file, key, MAX_KEY_SIZE);
@@ -99,24 +98,21 @@ void Database::put(const std::string& key, const std::string& val) {
         throw std::runtime_error{"Could not write database file: " + db_path_.string()};
     }
 
-    // update the index file
+    // Last write wins: update the index only after flushing the record.
+    // If this update fails, the appended record may remain unindexed.
     index_->set(key, db_offset);
 }
 
 bool Database::erase(const std::string& key) {
-    // check if key exists
     auto exist = index_->find(key);
 
-    // approach:
-    // keep writing to the db file
     std::ofstream file;
-    // only update the db file if the key is deleted
     if (exist) {
         try {
             file.open(db_path_, std::ios::binary | std::ios::app);
             file.exceptions(std::ios::failbit | std::ios::badbit);
 
-            // record type will determine this key is deleted
+            // Deletion records retain the key and serialize an empty value.
             utils::write_uint8(file, static_cast<std::uint8_t>(RecordType::Delete));
             utils::write_string(file, key, MAX_KEY_SIZE);
             utils::write_string(file, "", MAX_VALUE_SIZE);
@@ -126,7 +122,8 @@ bool Database::erase(const std::string& key) {
             throw std::runtime_error{"Could not write database file: " + db_path_.string()};
         }
 
-        // update index
+        // Unlink only after flushing the deletion record. If unlinking fails,
+        // the index can still expose the old value until recovery is implemented.
         if (!index_->erase(key)) {
             throw std::runtime_error("Key " + key + " exists in db file but not in index file");
         }

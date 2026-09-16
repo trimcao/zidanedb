@@ -139,8 +139,9 @@ before allocating memory when reading.
   [`src/index.h`](../src/index.h) if they are not needed yet.
 - [ ] Remove the unused `WorkloadOptions` in
   [`apps/matrix/matrix.h`](../apps/matrix/matrix.h) if it is not needed yet.
-- [ ] Remove commented-out maps and historical implementation comments. Keep
-  comments explaining the file format and invariants.
+- [x] Remove commented-out maps and historical implementation comments. Keep
+  comments explaining the file format and invariants. Teaching comments and code
+  examples are preserved in [C++ syntax notes](misc/cpp-code-syntax.md).
 - [ ] Consider `const std::string&` for `put()`/`set()` arguments that are only
   read; they currently copy strings without retaining ownership.
 

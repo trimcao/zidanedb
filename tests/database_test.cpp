@@ -13,23 +13,11 @@
 
 namespace {
 
-/*
-TemporaryDatabaseFile is a small test helper. Its job is:
-1. Choose a path in the operating system’s temporary directory.
-2. Ensure no old database exists at that path.
-3. Let the test use the path.
-4. Delete the test database when the test finishes.
-*/
+// Owns both temporary files, removing leftovers before use and cleaning up on destruction.
 class TemporaryDatabaseFile {
   public:
-    // note about the `explicit` keyword:
-    // This prevents C++ from automatically converting a string
-    // into a TemporaryDatabaseFile.
     explicit TemporaryDatabaseFile(const std::string& filename)
-        : path_{// note: For filesystem paths, / is overloaded
-                // to mean 'join these path components.'
-                std::filesystem::temp_directory_path() / filename},
-          idx_path_{path_} {
+        : path_{std::filesystem::temp_directory_path() / filename}, idx_path_{path_} {
 
         idx_path_ += ".idx";
         remove();
@@ -37,8 +25,6 @@ class TemporaryDatabaseFile {
 
     ~TemporaryDatabaseFile() { remove(); }
 
-    // note: The trailing const promises that calling path()
-    // does not modify the TemporaryDatabaseFile object
     const std::filesystem::path& path() const { return path_; }
 
     const std::filesystem::path& idx_path() const { return idx_path_; }
@@ -195,7 +181,6 @@ TEST_CASE("a new index entry persists after reopening") {
     REQUIRE(std::filesystem::exists(file.path()));
     REQUIRE(std::filesystem::exists(file.idx_path()));
 
-    // This assertion directly reveals that nothing was appended.
     REQUIRE(std::filesystem::file_size(file.idx_path()) > 0);
 
     {
@@ -684,4 +669,119 @@ TEST_CASE("Index set rejects oversized keys before writing", "[index][limits][re
 
     const zidanedb::Index reopened{file.idx_path(), 1};
     CHECK(reopened.find("existing") == 42);
+}
+
+TEST_CASE("index filenames preserve the complete database filename", "[filenames][regression]") {
+    std::string filename;
+    SECTION("simple filename") { filename = "filename-convention.zdb"; }
+    SECTION("filename with additional dots") { filename = "filename-convention.backup.zdb"; }
+
+    TemporaryDatabaseFile file{filename};
+    {
+        zidanedb::Database database{file.path(), 1};
+        database.put("player", "Zidane");
+
+        CHECK(std::filesystem::exists(file.path()));
+        CHECK(std::filesystem::exists(file.idx_path()));
+    }
+
+    const zidanedb::Database reopened{file.path(), 1};
+    CHECK(reopened.get("player") == "Zidane");
+}
+
+TEST_CASE("unsupported database filenames are rejected before creating files",
+          "[filenames][regression]") {
+    std::string filename;
+    SECTION("no extension") { filename = "filename-invalid"; }
+    SECTION("another extension") { filename = "filename-invalid.backup"; }
+    SECTION("old index extension") { filename = "filename-invalid.zidx"; }
+    SECTION("current index extension") { filename = "filename-invalid.zdb.idx"; }
+    SECTION("uppercase extension") { filename = "filename-invalid.ZDB"; }
+
+    TemporaryDatabaseFile file{filename};
+    CHECK_THROWS_AS((zidanedb::Database{file.path(), 1}), std::runtime_error);
+    CHECK_FALSE(std::filesystem::exists(file.path()));
+    CHECK_FALSE(std::filesystem::exists(file.idx_path()));
+}
+
+TEST_CASE("different supported database filenames keep independent indexes",
+          "[filenames][regression]") {
+    TemporaryDatabaseFile first{"filename-independent.zdb"};
+    TemporaryDatabaseFile second{"filename-independent.backup.zdb"};
+
+    {
+        zidanedb::Database first_database{first.path(), 1};
+        first_database.put("shared", "first");
+        first_database.put("first-only", "first value");
+
+        zidanedb::Database second_database{second.path(), 1};
+        second_database.put("shared", "second");
+        second_database.put("second-only", "second value");
+    }
+
+    CHECK(std::filesystem::exists(first.idx_path()));
+    CHECK(std::filesystem::exists(second.idx_path()));
+    const zidanedb::Database first_reopened{first.path(), 1};
+    const zidanedb::Database second_reopened{second.path(), 1};
+
+    CHECK(first_reopened.get("shared") == "first");
+    CHECK(first_reopened.get("first-only") == "first value");
+    CHECK_FALSE(first_reopened.get("second-only").has_value());
+    CHECK(second_reopened.get("shared") == "second");
+    CHECK(second_reopened.get("second-only") == "second value");
+    CHECK_FALSE(second_reopened.get("first-only").has_value());
+}
+
+TEST_CASE("an existing database with a missing index is rejected without replacing the index",
+          "[filenames][regression]") {
+    TemporaryDatabaseFile file{"filename-missing-index.zdb"};
+    {
+        zidanedb::Database database{file.path(), 1};
+        database.put("player", "Zidane");
+    }
+
+    const auto database_size = std::filesystem::file_size(file.path());
+    REQUIRE(std::filesystem::remove(file.idx_path()));
+
+    CHECK_THROWS_AS((zidanedb::Database{file.path(), 1}), std::runtime_error);
+    CHECK_FALSE(std::filesystem::exists(file.idx_path()));
+    REQUIRE(std::filesystem::exists(file.path()));
+    CHECK(std::filesystem::file_size(file.path()) == database_size);
+}
+
+TEST_CASE("an empty index without a database file can be reopened before the first write",
+          "[filenames][regression]") {
+    TemporaryDatabaseFile file{"filename-empty-index.zdb"};
+    {
+        const zidanedb::Database database{file.path(), 1};
+        CHECK_FALSE(database.get("missing").has_value());
+    }
+
+    REQUIRE(std::filesystem::exists(file.idx_path()));
+    REQUIRE_FALSE(std::filesystem::exists(file.path()));
+    {
+        zidanedb::Database reopened{file.path(), 1};
+        CHECK_FALSE(reopened.get("missing").has_value());
+        reopened.put("player", "Zidane");
+    }
+
+    const zidanedb::Database persisted{file.path(), 1};
+    CHECK(persisted.get("player") == "Zidane");
+}
+
+TEST_CASE("a populated index with a missing database file is rejected", "[filenames][regression]") {
+    TemporaryDatabaseFile file{"filename-missing-database.zdb"};
+    {
+        zidanedb::Database database{file.path(), 1};
+        database.put("old", "original");
+    }
+
+    const auto index_size = std::filesystem::file_size(file.idx_path());
+    REQUIRE(std::filesystem::remove(file.path()));
+
+    // Stale offsets must not be reused in a newly created database file.
+    CHECK_THROWS_AS((zidanedb::Database{file.path(), 1}), std::runtime_error);
+    CHECK_FALSE(std::filesystem::exists(file.path()));
+    REQUIRE(std::filesystem::exists(file.idx_path()));
+    CHECK(std::filesystem::file_size(file.idx_path()) == index_size);
 }

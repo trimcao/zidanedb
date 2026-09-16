@@ -26,7 +26,6 @@ class Database {
     [[nodiscard]]
     std::optional<std::string> get(const std::string& key) const;
 
-    // note: we use exception-based design for put
     // put() succeeds or throws an exception.
     void put(const std::string& key, const std::string& val);
 

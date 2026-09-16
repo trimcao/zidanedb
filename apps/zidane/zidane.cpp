@@ -6,17 +6,6 @@
 #include <string>
 #include <utility>
 
-/*
-Guidelines for main(): keep main() thin
-A good main() should do approximately five things:
-
-- Define the CLI.
-- Parse and validate arguments.
-- Construct the database.
-- Dispatch to the selected command.
-- Translate failures into messages and exit codes.
-
-*/
 int main(int argc, char** argv) {
     CLI::App app{"A key-value storage engine"};
     app.set_version_flag("--version", "ZidaneDB 0.1.0");
@@ -42,8 +31,6 @@ int main(int argc, char** argv) {
     auto* delete_command = app.add_subcommand("del", "Delete a value");
     delete_command->add_option("key", delete_key, "Key to delete")->required();
 
-    // The following means: only one subcommand could be used.
-    // So only one among GET, PUT, DELETE could be used.
     app.require_subcommand(1, 1);
 
     try {
@@ -52,7 +39,6 @@ int main(int argc, char** argv) {
         return app.exit(error);
     }
 
-    // build the database
     std::filesystem::path path{database_path};
 
     try {

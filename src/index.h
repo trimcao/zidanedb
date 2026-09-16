@@ -11,13 +11,13 @@
 namespace zidanedb {
 
 struct EntryLocation {
-    // entry offset for a given key
+    // Matching entry's offset, or zero if the key is absent.
     std::uint64_t entry_offset;
-    // prev entry offset of the found entry offset
+    // Predecessor's offset, or zero if the match is at the head or the key is absent.
     std::uint64_t prev_entry_offset;
-    // bucket offset (location of the bucket given the hash value)
+    // Location of the bucket selected by the key's hash.
     std::uint64_t bucket_offset;
-    // start of the collision chain (the offset indicated by the bucket)
+    // Head of the bucket's collision chain, or zero for an empty bucket.
     std::uint64_t chain_offset;
 };
 
@@ -45,10 +45,10 @@ class Index {
     bool erase(const std::string& key);
 
     IndexStats stats() const;
+    bool empty() const;
 
   private:
     std::filesystem::path path_;
-    // std::unordered_map<std::string, std::uint64_t> offsets_;
 
     std::string magic_;
     std::uint32_t version_;

@@ -29,7 +29,7 @@ int run_basic() {
     {
         zidanedb::Database database{path};
         for (std::size_t index = 0; index < pair_count; ++index) {
-            // The index guarantees that every key is unique
+            // The loop index makes each generated key unique.
             std::string key = "key-" + std::to_string(index) + "-" +
                               matrix::tests::detail::random_string(random_engine, 12);
 

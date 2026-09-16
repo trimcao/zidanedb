@@ -3,17 +3,6 @@
 #include <iostream>
 #include <string>
 
-/* Notes on the use of subcommands
-
-Subcommands have several advantages:
-
-- Valid test names automatically appear in --help.
-- Unknown tests are automatically rejected.
-- Each test can have its own options.
-- You avoid a growing string-based if chain.
-
-*/
-
 int main(int argc, char** argv) {
     CLI::App app{"Matrix: Tormentor of ZidaneDB"};
     app.set_version_flag("--version", "Matrix 0.1.0");
