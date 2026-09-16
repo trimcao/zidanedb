@@ -1,6 +1,7 @@
 #include "zidanedb/database.h"
 #include "index.h"
 #include "utils.h"
+#include "zidanedb/index_stats.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
