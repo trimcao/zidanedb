@@ -34,7 +34,6 @@ EntryLocation Index::find_entry_offset(std::istream& file, const std::string& ke
         std::uint64_t idx_chain_offset = 0;          // start of the colission chain
         std::uint64_t existing_idx_entry_offset = 0; // the entry offset for the given key
         std::uint64_t prev_entry_offset = 0;         // prev entry of the existing entry (if found)
-        IndexEntryHeader read_entry_header;
 
         file.seekg(bucket_offset);
         if (!file) {
@@ -45,9 +44,8 @@ EntryLocation Index::find_entry_offset(std::istream& file, const std::string& ke
         }
 
         // find the entry if it exists
-        std::string k;
         std::uint64_t cur_entry_offset;
-
+        IndexEntry entry;
         // assumption: existing_idx_entry_offset == 0 means could not find the key
         if (!idx_chain_offset) {
             // no key found
@@ -55,25 +53,13 @@ EntryLocation Index::find_entry_offset(std::istream& file, const std::string& ke
         } else {
             cur_entry_offset = idx_chain_offset;
             while (cur_entry_offset) {
-                file.seekg(cur_entry_offset);
-                if (!file) {
-                    throw std::runtime_error{"seek failed"};
-                }
-                if (!utils::read_uint64(file, read_entry_header.db_offset)) {
-                    throw std::runtime_error{"could not read db offset"};
-                }
-                if (!utils::read_uint64(file, read_entry_header.next_entry_offset)) {
-                    throw std::runtime_error{"could not read next entry offset"};
-                }
-                if (!utils::read_string(file, k)) {
-                    throw std::runtime_error{"could not read key"};
-                }
-                if (key == k) {
+                entry = read_entry(file, cur_entry_offset);
+                if (key == entry.key) {
                     existing_idx_entry_offset = cur_entry_offset;
                     break;
                 }
                 prev_entry_offset = cur_entry_offset;
-                cur_entry_offset = read_entry_header.next_entry_offset;
+                cur_entry_offset = entry.next_entry_offset;
             }
         }
 
@@ -130,6 +116,10 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
 }
 
 void Index::set(std::string key, std::uint64_t db_offset) {
+    if (key.size() > MAX_KEY_SIZE) {
+        throw std::runtime_error("Key size exceeds max allowed key size");
+    }
+
     std::fstream file{path_, std::ios::in | std::ios::out | std::ios::binary};
     if (!file) {
         throw std::runtime_error{"Could not open index file: " + path_.string()};
@@ -161,7 +151,7 @@ void Index::set(std::string key, std::uint64_t db_offset) {
 
             utils::write_uint64(file, db_offset);
             utils::write_uint64(file, next_entry_offset);
-            utils::write_string(file, key);
+            utils::write_string(file, key, MAX_KEY_SIZE);
             file.flush();
             file.clear();
 
@@ -246,7 +236,7 @@ void Index::load() {
         throw std::runtime_error("Could not open index file: " + path_.string());
     }
 
-    if (!utils::read_string(file, magic_) || (magic_ != INDEX_MAGIC)) {
+    if (!utils::read_string(file, magic_, INDEX_MAGIC.size()) || (magic_ != INDEX_MAGIC)) {
         throw std::runtime_error("Invalid ZidaneDB Index file");
     }
     if (!utils::read_uint32(file, version_) || (version_ != INDEX_VERSION)) {
@@ -279,7 +269,7 @@ void Index::setup() {
         }
         file.exceptions(std::ios::failbit | std::ios::badbit);
 
-        utils::write_string(file, magic_);
+        utils::write_string(file, magic_, INDEX_MAGIC.size());
         utils::write_uint32(file, version_);
         utils::write_uint64(file, num_buckets_);
 
@@ -297,8 +287,7 @@ void Index::setup() {
 
 std::uint64_t Index::index_size_before_entries() const {
     // magic + version + bucket_count + bucket_bytes
-    return utils::string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t) +
-           num_buckets_ * sizeof(std::uint64_t);
+    return header_size() + num_buckets_ * sizeof(std::uint64_t);
 }
 
 std::uint64_t Index::header_size() const {
@@ -323,8 +312,6 @@ IndexStats Index::stats() const {
         }
 
         std::uint64_t idx_chain_offset = 0; // start of the colission chain
-        IndexEntryHeader read_entry_header;
-
         std::uint64_t bucket_offset;
         for (std::uint64_t i = 0; i < num_buckets_; i++) {
             bucket_offset = header_size() + i * sizeof(std::uint64_t);
@@ -340,6 +327,7 @@ IndexStats Index::stats() const {
             std::uint64_t chain_length = 0;
             std::uint64_t cur_entry_offset;
             std::string k;
+            IndexEntry entry;
             if (!idx_chain_offset) {
                 // no key found
                 result.empty_buckets++;
@@ -347,21 +335,9 @@ IndexStats Index::stats() const {
                 result.non_empty_buckets++;
                 cur_entry_offset = idx_chain_offset;
                 while (cur_entry_offset) {
-                    file.seekg(cur_entry_offset);
-                    if (!file) {
-                        throw std::runtime_error{"seek failed"};
-                    }
-                    if (!utils::read_uint64(file, read_entry_header.db_offset)) {
-                        throw std::runtime_error{"could not read db offset"};
-                    }
-                    if (!utils::read_uint64(file, read_entry_header.next_entry_offset)) {
-                        throw std::runtime_error{"could not read next entry offset"};
-                    }
-                    if (!utils::read_string(file, k)) {
-                        throw std::runtime_error{"could not read key"};
-                    }
+                    entry = read_entry(file, cur_entry_offset);
                     chain_length++;
-                    cur_entry_offset = read_entry_header.next_entry_offset;
+                    cur_entry_offset = entry.next_entry_offset;
                 }
             }
             total_length += chain_length;
@@ -380,6 +356,30 @@ IndexStats Index::stats() const {
     }
 
     return result;
+}
+
+IndexEntry Index::read_entry(std::istream& file, std::uint64_t entry_offset) const {
+    IndexEntry entry{};
+
+    if (!entry_offset) {
+        return entry;
+    }
+
+    file.seekg(entry_offset);
+    if (!file) {
+        throw std::runtime_error{"seek failed"};
+    }
+    if (!utils::read_uint64(file, entry.db_offset)) {
+        throw std::runtime_error{"could not read db offset"};
+    }
+    if (!utils::read_uint64(file, entry.next_entry_offset)) {
+        throw std::runtime_error{"could not read next entry offset"};
+    }
+    if (!utils::read_string(file, entry.key, MAX_KEY_SIZE)) {
+        throw std::runtime_error{"could not read key"};
+    }
+
+    return entry;
 }
 
 } // namespace zidanedb

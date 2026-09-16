@@ -1,20 +1,29 @@
 #include <cstdint>
 #include <ios>
 #include <iostream>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
 namespace zidanedb::utils {
 
-void write_string(std::ostream& stream, const std::string& s) {
+void write_string(std::ostream& stream, const std::string& s, std::uint32_t max_length) {
+    if (s.size() > max_length) {
+        throw std::length_error("String is too large to serialize");
+    }
     const std::uint32_t length = static_cast<std::uint32_t>(s.size());
     stream.write(reinterpret_cast<const char*>(&length), sizeof(length));
     stream.write(s.data(), static_cast<std::streamsize>(s.size()));
 }
 
-bool read_string(std::istream& stream, std::string& result) {
+bool read_string(std::istream& stream, std::string& result, std::uint32_t max_length) {
     std::uint32_t length = {};
     if (!stream.read(reinterpret_cast<char*>(&length), sizeof(length))) {
+        return false;
+    }
+
+    if (length > max_length) {
         return false;
     }
 
@@ -75,6 +84,6 @@ std::uint64_t fnv1a(std::string_view key) {
 }
 
 // return the number of bytes used by write_string() function above
-std::uint32_t string_size(std::string_view s) { return sizeof(std::uint32_t) + s.size(); }
+std::uint64_t string_size(std::string_view s) { return sizeof(std::uint32_t) + s.size(); }
 
 } // namespace zidanedb::utils

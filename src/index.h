@@ -21,6 +21,17 @@ struct EntryLocation {
     std::uint64_t chain_offset;
 };
 
+struct IndexEntry {
+    std::uint64_t db_offset;
+    std::uint64_t next_entry_offset;
+    std::string key;
+};
+
+struct IndexEntryHeader {
+    std::uint64_t db_offset;
+    std::uint64_t next_entry_offset;
+};
+
 class Index {
   public:
     explicit Index(std::filesystem::path path, std::uint64_t num_buckets = 1'000'000);
@@ -48,17 +59,7 @@ class Index {
     std::uint64_t index_size_before_entries() const;
     std::uint64_t header_size() const;
     EntryLocation find_entry_offset(std::istream& file, const std::string& key) const;
-};
-
-struct IndexEntry {
-    std::uint64_t db_offset;
-    std::uint64_t next_entry_offset;
-    std::string key;
-};
-
-struct IndexEntryHeader {
-    std::uint64_t db_offset;
-    std::uint64_t next_entry_offset;
+    IndexEntry read_entry(std::istream& file, std::uint64_t entry_offset) const;
 };
 
 } // namespace zidanedb

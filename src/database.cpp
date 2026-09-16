@@ -1,4 +1,5 @@
 #include "zidanedb/database.h"
+#include "constants.h"
 #include "index.h"
 #include "utils.h"
 #include "zidanedb/index_stats.h"
@@ -57,7 +58,7 @@ std::optional<std::string> Database::get(const std::string& key) const {
     }
 
     // try to read the val
-    if (!utils::read_string(file, val)) {
+    if (!utils::read_string(file, val, MAX_VALUE_SIZE)) {
         throw std::runtime_error("Cannot read database entry value");
     }
 
@@ -66,6 +67,13 @@ std::optional<std::string> Database::get(const std::string& key) const {
 
 void Database::put(std::string key, std::string val) {
     // assume that we will keep appending even if new_val == current_val
+
+    if (key.size() > MAX_KEY_SIZE) {
+        throw std::runtime_error("Key size exceeds max allowed key size");
+    }
+    if (val.size() > MAX_VALUE_SIZE) {
+        throw std::runtime_error("Value size exceeds max allowed value size");
+    }
 
     std::ofstream file;
     std::uint64_t db_offset;
@@ -81,14 +89,14 @@ void Database::put(std::string key, std::string val) {
         // write the record type
         utils::write_uint8(file, static_cast<std::uint8_t>(RecordType::Put));
 
-        utils::write_string(file, key);
+        utils::write_string(file, key, MAX_KEY_SIZE);
         const auto position = file.tellp();
         if (position == std::ostream::pos_type(-1)) {
             throw std::runtime_error{"tellp() failed"};
         }
 
         db_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(position));
-        utils::write_string(file, val);
+        utils::write_string(file, val, MAX_VALUE_SIZE);
         file.flush();
     } catch (const std::ios_base::failure& error) {
         throw std::runtime_error{"Could not write database file: " + db_path_.string()};
@@ -113,8 +121,8 @@ bool Database::erase(const std::string& key) {
 
             // record type will determine this key is deleted
             utils::write_uint8(file, static_cast<std::uint8_t>(RecordType::Delete));
-            utils::write_string(file, key);
-            utils::write_string(file, "");
+            utils::write_string(file, key, MAX_KEY_SIZE);
+            utils::write_string(file, "", MAX_VALUE_SIZE);
             file.flush();
 
         } catch (const std::ios_base::failure& error) {
