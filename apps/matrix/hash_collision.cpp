@@ -17,7 +17,7 @@ int run_hash_collision(std::size_t pair_count, std::size_t bucket_count) {
         std::filesystem::temp_directory_path() / "matrix-hash-collision.zdb";
 
     const std::filesystem::path idx_path =
-        std::filesystem::temp_directory_path() / "matrix-hash-collision.zidx";
+        std::filesystem::temp_directory_path() / "matrix-hash-collision.zdb.idx";
 
     std::cout << "Database file: " << path << '\n';
 

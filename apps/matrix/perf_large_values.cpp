@@ -20,7 +20,7 @@ int run_perf_large_values(std::size_t pair_count, std::size_t value_size) {
         std::filesystem::temp_directory_path() / "matrix-large-values.zdb";
 
     const std::filesystem::path idx_path =
-        std::filesystem::temp_directory_path() / "matrix-large-values.zidx";
+        std::filesystem::temp_directory_path() / "matrix-large-values.zdb.idx";
 
     std::cout << "Database file: " << path << '\n';
 

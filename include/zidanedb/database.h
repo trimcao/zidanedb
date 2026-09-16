@@ -17,12 +17,10 @@ class Database {
   private:
     std::filesystem::path db_path_;
     std::filesystem::path idx_path_;
-    // std::unordered_map<std::string, std::uint64_t> index_;
     std::unique_ptr<Index> index_;
 
   public:
-    explicit Database(std::filesystem::path path);
-    explicit Database(std::filesystem::path path, std::uint64_t num_index_buckets);
+    explicit Database(std::filesystem::path path, std::uint64_t num_index_buckets = 1'000'000);
     ~Database();
 
     [[nodiscard]]

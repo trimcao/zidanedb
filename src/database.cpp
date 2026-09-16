@@ -18,19 +18,16 @@ namespace zidanedb {
 
 enum class RecordType : std::uint8_t { Put = 1, Delete = 2 };
 
-Database::Database(std::filesystem::path path) {
-    db_path_ = std::move(path);
-    idx_path_ = db_path_;
-    idx_path_.replace_extension(".zidx");
+Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
+    : db_path_{std::move(path)}, idx_path_{db_path_} {
 
-    index_ = std::make_unique<Index>(idx_path_);
-}
+    // Database filename must end in .zdb
+    // Index file name will be database filename plus .idx
+    if (db_path_.extension() != ".zdb") {
+        throw std::runtime_error("ZidaneDB database file must end with .zdb");
+    }
 
-Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets) {
-    db_path_ = std::move(path);
-    idx_path_ = db_path_;
-    idx_path_.replace_extension(".zidx");
-
+    idx_path_ += ".idx";
     index_ = std::make_unique<Index>(idx_path_, num_index_buckets);
 }
 

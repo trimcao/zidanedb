@@ -6,6 +6,7 @@
 #include "zidanedb/index_stats.h"
 
 #include <filesystem>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -30,7 +31,7 @@ class TemporaryDatabaseFile {
                 std::filesystem::temp_directory_path() / filename},
           idx_path_{path_} {
 
-        idx_path_.replace_extension(".zidx");
+        idx_path_ += ".idx";
         remove();
     }
 
@@ -102,6 +103,8 @@ TEST_CASE("erase returns false for a missing key") {
 
 TEST_CASE("put persists values after reopening") {
     TemporaryDatabaseFile file{"zidanedb-put-persistence-test.zdb"};
+
+    std::cout << "db file: " << file.path().string() << '\n';
 
     {
         zidanedb::Database database{file.path()};

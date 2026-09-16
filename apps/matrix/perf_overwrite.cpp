@@ -17,7 +17,7 @@ int run_perf_overwrite(std::size_t pair_count, std::size_t overwrite_times) {
         std::filesystem::temp_directory_path() / "matrix-overwrite-performance.zdb";
 
     const std::filesystem::path idx_path =
-        std::filesystem::temp_directory_path() / "matrix-overwrite-performance.zidx";
+        std::filesystem::temp_directory_path() / "matrix-overwrite-performance.zdb.idx";
 
     std::cout << "Database file: " << path << '\n';
 

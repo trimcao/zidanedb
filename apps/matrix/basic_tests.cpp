@@ -16,7 +16,7 @@ int run_basic() {
     const std::filesystem::path path =
         std::filesystem::temp_directory_path() / "zidanedb-matrix-test.zdb";
     const std::filesystem::path idx_path =
-        std::filesystem::temp_directory_path() / "zidanedb-matrix-test.zidx";
+        std::filesystem::temp_directory_path() / "zidanedb-matrix-test.zdb.idx";
 
     std::filesystem::remove(path);
     std::filesystem::remove(idx_path);

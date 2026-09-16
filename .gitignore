@@ -2,5 +2,5 @@
 /build-release/
 .vscode/
 *.zdb
-*.zidx
+*.zdb.idx
 compile_commands.json

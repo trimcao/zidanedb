@@ -17,7 +17,7 @@ int run_perf_basic(std::size_t pair_count) {
         std::filesystem::temp_directory_path() / "matrix-performance.zdb";
 
     const std::filesystem::path idx_path =
-        std::filesystem::temp_directory_path() / "matrix-performance.zidx";
+        std::filesystem::temp_directory_path() / "matrix-performance.zdb.idx";
 
     std::cout << "Database file: " << path << '\n';
 
