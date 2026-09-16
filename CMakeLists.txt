@@ -90,6 +90,11 @@ if(BUILD_TESTING)
 
     add_executable(database_tests
         tests/database_test.cpp
+        tests/utils_test.cpp
+    )
+
+    target_include_directories(database_tests
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
 
     target_link_libraries(database_tests
