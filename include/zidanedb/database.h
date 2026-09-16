@@ -30,7 +30,7 @@ class Database {
 
     // note: we use exception-based design for put
     // put() succeeds or throws an exception.
-    void put(std::string key, std::string val);
+    void put(const std::string& key, const std::string& val);
 
     // erase() reports whether the key existed.
     [[nodiscard]]

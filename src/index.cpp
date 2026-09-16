@@ -115,7 +115,7 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
     }
 }
 
-void Index::set(std::string key, std::uint64_t db_offset) {
+void Index::set(const std::string& key, std::uint64_t db_offset) {
     if (key.size() > MAX_KEY_SIZE) {
         throw std::runtime_error("Key size exceeds max allowed key size");
     }

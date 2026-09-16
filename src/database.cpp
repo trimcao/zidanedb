@@ -65,7 +65,7 @@ std::optional<std::string> Database::get(const std::string& key) const {
     return val;
 }
 
-void Database::put(std::string key, std::string val) {
+void Database::put(const std::string& key, const std::string& val) {
     // assume that we will keep appending even if new_val == current_val
 
     if (key.size() > MAX_KEY_SIZE) {

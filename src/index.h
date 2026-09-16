@@ -39,7 +39,7 @@ class Index {
     [[nodiscard]]
     std::optional<std::uint64_t> find(const std::string& key) const;
 
-    void set(std::string key, std::uint64_t db_offset);
+    void set(const std::string& key, std::uint64_t db_offset);
 
     [[nodiscard]]
     bool erase(const std::string& key);
