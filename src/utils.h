@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <iostream>
 #include <string>
+#include <string_view>
 
 namespace zidanedb::utils {
 

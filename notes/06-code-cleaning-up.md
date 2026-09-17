@@ -6,22 +6,23 @@ reliable file I/O and smaller, reusable helpers.
 Work through the items below one at a time. The first five address correctness
 and error handling; the remaining items improve organization and maintainability.
 
-Checklist updated after reviewing the current changes on 2026-09-15. The issue
-descriptions below preserve the original review context; checked boxes indicate
-implemented cleanup. Regression-test additions are tracked separately.
+Checklist updated after reviewing commit `96d4926` on 2026-09-16. Original issues
+are described in the past tense; checked boxes reflect the current code.
+Regression-test additions are tracked separately: a successful temporary probe
+does not count as a test added to the repository.
 
 ## 1. Check Every Index Read
 
-In [`src/index.cpp`](../src/index.cpp), `find_entry_offset()` and other read paths
-ignore several `read_uint64()` and `read_string()` results. A truncated file can
-therefore look like a missing key, or leave entry fields uninitialized or stale.
-The surrounding `catch` does not handle ordinary stream failures unless stream
-exceptions are enabled.
+Originally, `find_entry_offset()` and other paths in
+[`src/index.cpp`](../src/index.cpp) ignored read results, allowing truncation to
+look like a missing key or leave entry fields uninitialized. Reads are now
+checked explicitly or protected by stream exceptions. In particular, the
+`read_uint64()` in `Index::erase()` is covered by its `failbit | badbit` exception
+mask even though the boolean return value is not used.
 
-Choose a consistent contract: `std::nullopt` means "key absent"; an exception
-means "could not read the database." Currently,
-[`Database::get()`](../src/database.cpp) also returns `nullopt` for file errors,
-making these cases indistinguishable.
+The current contract is consistent: `std::nullopt` means "key absent"; an
+exception means "could not read the database." `Database::get()` no longer
+returns `nullopt` for a failed database read.
 
 - [x] Check every seek and read, or enable stream exceptions where appropriate.
 - [x] Distinguish a missing key from an I/O error or invalid record.
@@ -29,9 +30,9 @@ making these cases indistinguishable.
 
 ## 2. Make Successful Construction Guarantee a Usable Index
 
-[`Index::load()` and `setup()`](../src/index.cpp) print errors and return, allowing
-construction to finish after failure. `load()` also reads the magic and version
-without checking their values.
+Originally, [`Index::load()` and `setup()`](../src/index.cpp) printed errors and
+returned, allowing construction to finish after failure. They now throw on
+failure, and `load()` validates the header values and bucket-table capacity.
 
 Validate the magic, supported version, positive bucket count, and sufficient
 file size. Reject zero buckets in the constructor: otherwise,
@@ -44,9 +45,9 @@ file size. Reject zero buckets in the constructor: otherwise,
 
 ## 3. Review the Ordering in `Database::erase()`
 
-[`Database::erase()`](../src/database.cpp) removes the index entry before appending
-the deletion record. If the database write fails, the function throws but the
-key has already disappeared from the index.
+Originally, [`Database::erase()`](../src/database.cpp) removed the index entry
+before appending the deletion record. A failed database write could therefore
+leave the key missing from the index without a deletion record.
 
 Establish the same record-first ordering used by `put()`: check existence,
 append the deletion record, then update the index. This improves ordinary
@@ -55,14 +56,23 @@ a separate recovery task.
 
 - [x] Check whether the key exists before changing either file.
 - [x] Append and flush the deletion record before updating the index.
-- [ ] Document the remaining failure cases between the two writes for the
-  future recovery design.
+- [x] Document the remaining failure cases between the two writes for the
+  future recovery design. The comments at the `put()`/`erase()` index updates
+  explain the unindexed-put and still-visible-deletion cases.
+
+Keep those short comments next to the ordering-sensitive code. Put the fuller
+design in the existing [API Design and Recovery note](07-api-design-and-recovery.md),
+under its currently empty `Recovery` heading. That discussion should cover
+partial data records, partial index updates, restart/replay rules, and durability
+limits: flushing a C++ stream is not an atomic transaction or a power-loss
+durability guarantee. The basic documentation checkbox is complete; implementing
+recovery is a separate project, not a requirement for finishing this checklist.
 
 ## 4. Handle Statistics for an Empty Index
 
-[`Index::stats()`](../src/index.cpp) divides by `non_empty_buckets`, which is zero
-for a new database or after deleting every key. The floating-point result can
-be NaN.
+Originally, [`Index::stats()`](../src/index.cpp) divided by `non_empty_buckets`
+even when it was zero. It now leaves the average at zero for an empty index and
+only divides when there are occupied buckets.
 
 Define the empty average as zero. Also document that this average measures
 chain length among occupied buckets, whereas load factor includes every bucket.
@@ -75,30 +85,42 @@ chain length among occupied buckets, whereas load factor includes every bucket.
 
 ## 5. Make the Database/Index Filename Relationship Unambiguous
 
-The [`Database` constructors](../src/database.cpp) replace the database's
-extension with `.zidx`. Consequently, `data.zdb` and `data.backup` share
-`data.zidx`; passing `data.zidx` makes the database and index paths identical.
+The old constructors replaced the database extension with `.zidx`, causing
+filename collisions. The current [`Database` constructor](../src/database.cpp)
+requires `.zdb` and appends `.idx`, so `data.zdb` belongs with `data.zdb.idx`.
 
-Either enforce a database filename convention or derive an index filename that
-remains distinct. Also decide what opening an existing database with a missing
-index means: currently it creates an empty index, making previous records
-inaccessible through `get()`.
+An existing database with no index is now rejected. An index with entry bytes
+but no database is also rejected, fixing the stale-offset problem reproduced in
+the previous review. A pristine index without a database is allowed, since the
+database file is created lazily on the first successful write.
 
-- [ ] Choose and document the filename convention.
-- [ ] Prevent the database and index from using the same file.
-- [ ] Prevent distinct supported database names from accidentally sharing an
+- [x] Choose and document the filename convention.
+- [x] Prevent the database and index from using the same filename.
+- [x] Prevent distinct supported database names from accidentally sharing an
   index file.
-- [ ] Define behavior for a missing companion file. Until recovery exists,
-  reporting an error is a possible policy.
+- [x] Define behavior for a missing companion file. Missing companions are
+  rejected except for a pristine index before the first database write.
+
+One related contract needs clarification: `Index::empty()` currently compares
+file size with the header-plus-buckets size. Since erasing entries does not
+shrink the file, `put("key", "value")` followed by `erase("key")` leaves zero
+occupied buckets but `empty()` still returns false. Consequently, a missing
+database is rejected even when its index has no live keys. This is conservative,
+but "pristine file" and "logically empty index" are different concepts.
+
+- [ ] Clarify `Index::empty()` and test the erase-all case. Either inspect bucket
+  heads to implement logical emptiness, or rename the helper to express the
+  pristine-file check and explicitly retain the stricter missing-data policy.
 
 ## 6. Open the Index Once per Operation and Reuse the Stream
 
-[`find_entry_offset()`](../src/index.cpp) opens the file, then its caller opens
-it again. Have the caller open the stream and pass it into the helper.
+Originally, [`find_entry_offset()`](../src/index.cpp) opened its own file while
+its caller also opened one. The caller now passes an existing stream to the
+helper.
 
-Lookup and statistics currently request write access despite only reading.
-Use an input stream for those operations and make `Index::stats()` `const`.
-This also lets reads work when the index file is read-only.
+Lookup opens its `fstream` with `std::ios::in | std::ios::binary`; statistics
+uses `ifstream` and is `const`. Neither requests write access. Read-only-index
+lookup and statistics also passed the temporary review probe.
 
 - [x] Pass an already-open stream into the entry lookup helper.
 - [x] Use input-only access for lookup and statistics.
@@ -106,44 +128,43 @@ This also lets reads work when the index file is read-only.
 
 ## 7. Centralize Binary-Format Details
 
-Header-size calculations and entry-reading sequences repeat in
-[`src/index.cpp`](../src/index.cpp). Small helpers such as `header_size()` and
-`read_entry()` would give the code one place to maintain the layout and check
-errors.
+Header-size calculations and full entry-reading sequences were duplicated in
+[`src/index.cpp`](../src/index.cpp). The const `header_size()` and `read_entry()`
+helpers now centralize these details, including checked entry decoding used by
+chain lookup and statistics.
 
-Current progress: `header_size()` exists and is used by `load()`, but the
-calculation still repeats in `find_entry_offset()`, `stats()`, and
-`index_size_before_entries()`. Make `header_size()` a `const` member so the
-read-only methods can reuse it. The centralization checkbox stays open until
-the remaining duplication is removed.
+In [`src/utils.cpp`](../src/utils.cpp), `string_size()` now returns `uint64_t`.
+`write_string()` checks length before converting to the 32-bit prefix; its
+`uint32_t max_length` cannot exceed that prefix's capacity. `read_string()`
+rejects an oversized stored length before resizing the result. `Database::put()`
+also validates key/value limits before opening or modifying either file.
 
-In [`src/utils.cpp`](../src/utils.cpp), `string_size()` narrows the serialized
-size to `uint32_t`. Use a sufficiently wide size type, and separately validate
-that strings fit the 32-bit length prefix before writing. Validate lengths
-before allocating memory when reading.
-
-- [ ] Centralize the header-size calculation.
-- [ ] Centralize entry decoding and its error checks.
-- [ ] Use a sufficiently wide return type for the serialized string size.
-- [ ] Reject strings whose lengths cannot fit the on-disk length prefix.
-- [ ] Validate stored lengths before resizing a string to read its contents.
+- [x] Centralize the header-size calculation.
+- [x] Centralize entry decoding and its error checks.
+- [x] Use a sufficiently wide return type for the serialized string size.
+- [x] Reject strings whose lengths cannot fit the on-disk length prefix.
+- [x] Validate stored lengths before resizing a string to read its contents.
 
 ## 8. Remove Small Sources of Duplication and Clutter
 
-- [ ] Delegate one [`Database` constructor](../src/database.cpp) to the other,
-  and use initializer lists.
-- [ ] Include `"utils.h"` in [`src/utils.cpp`](../src/utils.cpp), so the compiler
+- [x] Remove duplication between [`Database` constructors](../src/database.cpp)
+  and use initializer lists. A single constructor with a default argument
+  achieves this; delegation is no longer necessary.
+- [x] Include `"utils.h"` in [`src/utils.cpp`](../src/utils.cpp), so the compiler
   checks definitions against declarations.
 - [ ] Include `<string_view>` explicitly in [`src/utils.h`](../src/utils.h).
-- [ ] Remove the unused `IndexEntry` and `index_size_before_entries()` in
-  [`src/index.h`](../src/index.h) if they are not needed yet.
+- [x] Reassess the previously unused `IndexEntry` and
+  `index_size_before_entries()` in [`src/index.h`](../src/index.h). Both are now
+  used, so keep them. Revisit the size helper only if changing `empty()` makes
+  it unused again.
 - [ ] Remove the unused `WorkloadOptions` in
   [`apps/matrix/matrix.h`](../apps/matrix/matrix.h) if it is not needed yet.
+- [ ] Remove the unused `std::string k` local in `Index::stats()`.
 - [x] Remove commented-out maps and historical implementation comments. Keep
   comments explaining the file format and invariants. Teaching comments and code
   examples are preserved in [C++ syntax notes](misc/cpp-code-syntax.md).
-- [ ] Consider `const std::string&` for `put()`/`set()` arguments that are only
-  read; they currently copy strings without retaining ownership.
+- [x] Use `const std::string&` for the read-only `Database::put()` and
+  `Index::set()` string arguments.
 
 ## Tests to Add Alongside the Cleanup
 
@@ -151,13 +172,14 @@ The [existing tests](../tests/database_test.cpp) cover persistence, collisions,
 deletion positions, and empty values. Add focused tests as each behavior is
 clarified or corrected:
 
-- [ ] Statistics for a new, empty database.
-- [ ] Statistics after deleting every key.
+- [x] Statistics for a new, empty database.
+- [x] Statistics after deleting every key.
 - [ ] Rejection of zero buckets.
 - [ ] Invalid magic or unsupported index version.
 - [ ] Truncated index headers, bucket tables, and entries.
-- [ ] Missing companion files.
-- [ ] Filename collisions or invalid names, according to the chosen convention.
+- [x] Missing companion files: missing index, missing data with a populated
+  index, and a pristine index before the first write.
+- [x] Filename collisions or invalid names, according to the chosen convention.
 - [ ] Reading an index without write permission.
 
 The existing assertion that the index file size is greater than zero is now
@@ -167,7 +189,40 @@ checks as well.
 
 - [ ] Strengthen the index-entry persistence test's file-size assertion.
 
+Record the index size after constructing `Database` but before `put()`, then
+assert that it grows after inserting a new key. Keep the existing reopen/read
+checks. The current `file_size(...) > 0` would pass for an index with only its
+header and empty bucket table.
+
+The string-limit and serialization regression tests in
+[`database_test.cpp`](../tests/database_test.cpp) and
+[`utils_test.cpp`](../tests/utils_test.cpp) are already present and passing.
+
 ## Review Verification
+
+### Current Review — 2026-09-16
+
+- Built all targets and ran CTest in a fresh temporary directory: **34/34 tests
+  passed**, including the previously failing missing-database regression.
+- Temporary probes confirmed rejection of zero requested/stored bucket counts,
+  invalid magic/version, truncated headers/bucket tables, and truncated entries
+  during lookup/statistics. These are diagnostic probes, not committed tests;
+  the corresponding test checkboxes remain open.
+- A temporary read-only-index probe confirmed both lookup and statistics work.
+  The process was non-root, and opening the same file for writing was verified
+  to fail. A permanent permission regression test is still missing.
+- Reproduced the distinction between physical and logical emptiness: after
+  erasing the last key, statistics report zero occupied buckets while
+  `Index::empty()` reports false. The missing-data constructor rejects this
+  state under the current conservative policy.
+- Extra-warning syntax checks passed, with conversion warnings still present
+  around stream offsets, magic-string lengths, the statistics division, and
+  hash-byte conversion. These are additional hardening opportunities, not
+  failures of the regular build.
+- Only this checklist was edited in the repository during this review; source
+  and regression-test changes are left to the user.
+
+### Earlier Review — 2026-09-15
 
 The follow-up review on 2026-09-15 confirmed the four fixes requested in the
 previous review:

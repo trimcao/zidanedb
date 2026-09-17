@@ -314,7 +314,6 @@ IndexStats Index::stats() const {
 
             std::uint64_t chain_length = 0;
             std::uint64_t cur_entry_offset;
-            std::string k;
             IndexEntry entry;
             if (!idx_chain_offset) {
                 result.empty_buckets++;
@@ -370,7 +369,37 @@ IndexEntry Index::read_entry(std::istream& file, std::uint64_t entry_offset) con
 }
 
 bool Index::empty() const {
-    return std::filesystem::file_size(path_) <= index_size_before_entries();
+    if (!std::filesystem::exists(path_)) {
+        return true;
+    }
+
+    // note: the index is considered empty only when all buckets point to a null entry
+    try {
+        std::ifstream file{path_, std::ios::binary};
+        if (!file) {
+            throw std::runtime_error{"Could not open index file: " + path_.string()};
+        }
+
+        std::uint64_t idx_chain_offset = 0;
+        file.seekg(header_size());
+        if (!file) {
+            throw std::runtime_error{"seek failed"};
+        }
+        for (std::uint64_t i = 0; i < num_buckets_; i++) {
+            if (!utils::read_uint64(file, idx_chain_offset)) {
+                throw std::runtime_error{"could not read chain_offset from bucket"};
+            }
+
+            if (idx_chain_offset) {
+                return false;
+            }
+        }
+
+    } catch (const std::ios_base::failure& error) {
+        throw std::runtime_error{"Could not read index file: " + path_.string()};
+    }
+
+    return true;
 }
 
 } // namespace zidanedb
