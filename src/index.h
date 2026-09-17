@@ -56,7 +56,6 @@ class Index {
 
     void load();
     void setup();
-    std::uint64_t index_size_before_entries() const;
     std::uint64_t header_size() const;
     EntryLocation find_entry_offset(std::istream& file, const std::string& key) const;
     IndexEntry read_entry(std::istream& file, std::uint64_t entry_offset) const;

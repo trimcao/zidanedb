@@ -5,7 +5,9 @@
 #include "zidanedb/database.h"
 #include "zidanedb/index_stats.h"
 
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -38,6 +40,29 @@ class TemporaryDatabaseFile {
         std::filesystem::remove(path_, ignored);
         std::filesystem::remove(idx_path_, ignored);
     }
+};
+
+// Restore permissions even when an assertion aborts or the test is skipped.
+class ScopedReadOnlyFile {
+  public:
+    explicit ScopedReadOnlyFile(const std::filesystem::path& path)
+        : path_{path}, original_permissions_{std::filesystem::status(path).permissions()} {
+        const auto write_permissions = std::filesystem::perms::owner_write |
+                                       std::filesystem::perms::group_write |
+                                       std::filesystem::perms::others_write;
+        std::filesystem::permissions(path_, write_permissions,
+                                     std::filesystem::perm_options::remove);
+    }
+
+    ~ScopedReadOnlyFile() {
+        std::error_code ignored;
+        std::filesystem::permissions(path_, original_permissions_,
+                                     std::filesystem::perm_options::replace, ignored);
+    }
+
+  private:
+    std::filesystem::path path_;
+    std::filesystem::perms original_permissions_;
 };
 
 } // namespace
@@ -167,21 +192,25 @@ TEST_CASE("multi-line value should work") {
     }
 }
 
-TEST_CASE("a new index entry persists after reopening") {
+TEST_CASE("a new index entry persists after reopening", "[persistence][regression]") {
     TemporaryDatabaseFile file{"new-index-entry-persistence-test.zdb"};
 
     REQUIRE_FALSE(std::filesystem::exists(file.path()));
     REQUIRE_FALSE(std::filesystem::exists(file.idx_path()));
 
+    std::uintmax_t initial_index_size = 0;
     {
         zidanedb::Database database{file.path()};
+        // Construction already writes a header and bucket table, without any entries.
+        initial_index_size = std::filesystem::file_size(file.idx_path());
+        REQUIRE(initial_index_size > 0);
         database.put("new-key", "new-value");
     }
 
     REQUIRE(std::filesystem::exists(file.path()));
     REQUIRE(std::filesystem::exists(file.idx_path()));
 
-    REQUIRE(std::filesystem::file_size(file.idx_path()) > 0);
+    REQUIRE(std::filesystem::file_size(file.idx_path()) > initial_index_size);
 
     {
         const zidanedb::Database reopened{file.path()};
@@ -784,4 +813,85 @@ TEST_CASE("a populated index with a missing database file is rejected", "[filena
     CHECK_FALSE(std::filesystem::exists(file.path()));
     REQUIRE(std::filesystem::exists(file.idx_path()));
     CHECK(std::filesystem::file_size(file.idx_path()) == index_size);
+}
+
+TEST_CASE("an index with only erased entries can reopen without its database file",
+          "[filenames][empty][regression]") {
+    TemporaryDatabaseFile file{"filename-erased-index.zdb"};
+    std::uintmax_t empty_index_size = 0;
+    {
+        zidanedb::Database database{file.path(), 1};
+        empty_index_size = std::filesystem::file_size(file.idx_path());
+        database.put("old", "original");
+        REQUIRE(database.erase("old"));
+    }
+
+    REQUIRE(std::filesystem::file_size(file.idx_path()) > empty_index_size);
+    REQUIRE(std::filesystem::remove(file.path()));
+    {
+        zidanedb::Database reopened{file.path(), 1};
+        CHECK_FALSE(reopened.get("old").has_value());
+        reopened.put("new", "replacement");
+        CHECK_FALSE(reopened.get("old").has_value());
+    }
+
+    const zidanedb::Database persisted{file.path(), 1};
+    CHECK(persisted.get("new") == "replacement");
+    CHECK_FALSE(persisted.get("old").has_value());
+}
+
+TEST_CASE("Database rejects zero buckets before creating either file", "[validation][regression]") {
+    TemporaryDatabaseFile file{"database-zero-buckets.zdb"};
+
+    CHECK_THROWS_AS((zidanedb::Database{file.path(), 0}), std::runtime_error);
+    CHECK_FALSE(std::filesystem::exists(file.path()));
+    CHECK_FALSE(std::filesystem::exists(file.idx_path()));
+}
+
+TEST_CASE("database reads work with a read-only index", "[permissions][regression]") {
+    TemporaryDatabaseFile file{"database-readonly-index.zdb"};
+    bool populated = false;
+    SECTION("empty index before the first write") { populated = false; }
+    SECTION("populated index") { populated = true; }
+
+    {
+        zidanedb::Database database{file.path(), 4};
+        if (populated) {
+            database.put("player", "Zidane");
+        }
+    }
+
+    const auto original_permissions = std::filesystem::status(file.idx_path()).permissions();
+    {
+        ScopedReadOnlyFile read_only{file.idx_path()};
+        {
+            // Opening with in|out does not truncate or write anything.
+            std::fstream writer{file.idx_path(), std::ios::in | std::ios::out | std::ios::binary};
+            if (writer.is_open()) {
+                // Root privileges or some filesystems can bypass the permission bits.
+                SKIP("Cannot enforce a read-only index for this user/filesystem");
+            }
+        }
+        // Confirm it is readable, so the failed write-open was not a missing-file error.
+        std::ifstream reader{file.idx_path(), std::ios::binary};
+        REQUIRE(reader.is_open());
+
+        const zidanedb::Database reopened{file.path(), 4};
+        CHECK_FALSE(reopened.get("missing").has_value());
+        const auto stats = reopened.get_index_stats();
+        CHECK(stats.num_buckets == 4);
+        if (populated) {
+            CHECK(reopened.get("player") == "Zidane");
+            CHECK(stats.non_empty_buckets == 1);
+            CHECK(stats.max_chain_length == 1);
+        } else {
+            CHECK_FALSE(reopened.get("player").has_value());
+            CHECK(stats.non_empty_buckets == 0);
+            CHECK(stats.max_chain_length == 0);
+        }
+
+        const zidanedb::Index index{file.idx_path(), 4};
+        CHECK(index.empty() == !populated);
+    }
+    CHECK(std::filesystem::status(file.idx_path()).permissions() == original_permissions);
 }

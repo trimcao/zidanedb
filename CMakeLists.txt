@@ -90,6 +90,7 @@ if(BUILD_TESTING)
 
     add_executable(database_tests
         tests/database_test.cpp
+        tests/index_test.cpp
         tests/utils_test.cpp
     )
 

@@ -274,11 +274,6 @@ void Index::setup() {
     }
 }
 
-std::uint64_t Index::index_size_before_entries() const {
-    // magic + version + bucket_count + bucket_bytes
-    return header_size() + num_buckets_ * sizeof(std::uint64_t);
-}
-
 std::uint64_t Index::header_size() const {
     // magic + version + bucket_count
     return utils::string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t);
@@ -369,10 +364,6 @@ IndexEntry Index::read_entry(std::istream& file, std::uint64_t entry_offset) con
 }
 
 bool Index::empty() const {
-    if (!std::filesystem::exists(path_)) {
-        return true;
-    }
-
     // note: the index is considered empty only when all buckets point to a null entry
     try {
         std::ifstream file{path_, std::ios::binary};
