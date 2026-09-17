@@ -1,6 +1,6 @@
 # API Design and Recovery
 
-## API Design
+## API Design (Basic)
 The basic question: what do PUT, GET, and DELETE actually mean?
 
 PUT scenarios:
