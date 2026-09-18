@@ -1,7 +1,7 @@
 #include "zidanedb/database.h"
 #include "constants.h"
 #include "index.h"
-#include "utils.h"
+#include "record.h"
 #include "zidanedb/index_stats.h"
 #include <cstdint>
 #include <filesystem>
@@ -15,9 +15,6 @@
 #include <utility>
 
 namespace zidanedb {
-
-// Records: [type:u8][key_length:u32][key_bytes][value_length:u32][value_bytes].
-enum class RecordType : std::uint8_t { Put = 1, Delete = 2 };
 
 Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
     : db_path_{std::move(path)}, idx_path_{db_path_} {
@@ -43,7 +40,7 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
 Database::~Database() = default;
 
 std::optional<std::string> Database::get(const std::string& key) const {
-    std::string val;
+    Record record{};
 
     // Index membership distinguishes a missing key from a stored empty value.
     auto offset = index_->find(key);
@@ -60,11 +57,11 @@ std::optional<std::string> Database::get(const std::string& key) const {
         throw std::runtime_error("Seek failed");
     }
 
-    if (!utils::read_string(file, val, MAX_VALUE_SIZE)) {
-        throw std::runtime_error("Cannot read database entry value");
-    }
+    if (!read_record(file, record)) {
+        throw std::runtime_error("Cannot get the db record");
+    };
 
-    return val;
+    return record.value;
 }
 
 void Database::put(const std::string& key, const std::string& val) {
@@ -76,6 +73,8 @@ void Database::put(const std::string& key, const std::string& val) {
         throw std::runtime_error("Value size exceeds max allowed value size");
     }
 
+    // TODO: compute the checksum properly
+    Record record{RecordType::Put, key, val, 0};
     std::ofstream file;
     std::uint64_t db_offset;
 
@@ -83,16 +82,14 @@ void Database::put(const std::string& key, const std::string& val) {
         file.open(db_path_, std::ios::binary | std::ios::app);
         file.exceptions(std::ios::failbit | std::ios::badbit);
 
-        utils::write_uint8(file, static_cast<std::uint8_t>(RecordType::Put));
-
-        utils::write_string(file, key, MAX_KEY_SIZE);
+        // get the offset of this record
         const auto position = file.tellp();
         if (position == std::ostream::pos_type(-1)) {
             throw std::runtime_error{"tellp() failed"};
         }
-
         db_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(position));
-        utils::write_string(file, val, MAX_VALUE_SIZE);
+
+        write_record(file, record);
         file.flush();
     } catch (const std::ios_base::failure& error) {
         throw std::runtime_error{"Could not write database file: " + db_path_.string()};
@@ -106,16 +103,16 @@ void Database::put(const std::string& key, const std::string& val) {
 bool Database::erase(const std::string& key) {
     auto exist = index_->find(key);
 
+    Record record{RecordType::Delete, key, "", 0};
     std::ofstream file;
+
     if (exist) {
         try {
             file.open(db_path_, std::ios::binary | std::ios::app);
             file.exceptions(std::ios::failbit | std::ios::badbit);
 
             // Deletion records retain the key and serialize an empty value.
-            utils::write_uint8(file, static_cast<std::uint8_t>(RecordType::Delete));
-            utils::write_string(file, key, MAX_KEY_SIZE);
-            utils::write_string(file, "", MAX_VALUE_SIZE);
+            write_record(file, record);
             file.flush();
 
         } catch (const std::ios_base::failure& error) {

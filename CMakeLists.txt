@@ -10,6 +10,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Dependencies are checked into vendor/ so configuring a fresh build tree does
 # not require network access.
+set(CRC32C_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CRC32C_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(CRC32C_USE_GLOG OFF CACHE BOOL "" FORCE)
+set(CRC32C_INSTALL OFF CACHE BOOL "" FORCE)
+
+# Compatibility with this dependency's older CMake policy version.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
+add_subdirectory(vendor/crc32c EXCLUDE_FROM_ALL)
 add_subdirectory(vendor/CLI11 EXCLUDE_FROM_ALL)
 
 add_library(zidanedb
@@ -21,7 +30,12 @@ add_library(zidanedb
     src/utils.h
     src/utils.cpp
     src/constants.h
+    src/record.h
+    src/record.cpp
 )
+
+target_link_libraries(zidanedb PRIVATE crc32c)
+
 
 target_include_directories(zidanedb
     PUBLIC

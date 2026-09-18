@@ -6,7 +6,7 @@ Just use `make`:
 make build
 ```
 
-CLI11 and Catch2 are checked into `vendor/`, so configuration and compilation
+CLI11 and Catch2 and crc32c are checked into `vendor/`, so configuration and compilation
 do not require network access, including after deleting the build directory.
 
 To build fresh:

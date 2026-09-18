@@ -149,3 +149,125 @@ clean_shutdown
 
 ### Hardware crash simulated with VMs (virtual machines)
 
+## Appendix: Vendoring CRC32C for Offline Builds
+
+ZidaneDB's existing dependencies are source-code snapshots committed into the
+project, not separate Git repositories. This is documented in
+[vendor/README.md](../vendor/README.md).
+
+The process is: download an archive, extract it into `vendor/`, tell CMake to use
+it, and commit the files.
+
+### 1. Download a Specific Version
+
+Run these commands from the ZidaneDB project directory:
+
+```bash
+crc32c_download_dir=$(mktemp -d)
+
+curl -fL \
+  https://github.com/google/crc32c/archive/refs/tags/1.1.2.tar.gz \
+  -o "$crc32c_download_dir/crc32c.tar.gz"
+```
+
+Here, `1.1.2` is an existing
+[upstream version tag](https://github.com/google/crc32c/tags). Choosing a version
+instead of `main` makes the dependency choice explicit.
+
+The commands mean:
+
+- `mktemp -d`: create a temporary directory.
+- `curl`: download a file.
+- `-f`: report an error if the server returns an HTTP error.
+- `-L`: follow redirects, which GitHub uses for downloads.
+- `-o`: specify where to save the downloaded archive.
+
+Run the following extraction commands in the same shell so that
+`crc32c_download_dir` still refers to that temporary directory. Continue only if
+the download succeeded.
+
+### 2. Extract It into `vendor/crc32c`
+
+```bash
+mkdir vendor/crc32c && \
+tar -xzf "$crc32c_download_dir/crc32c.tar.gz" \
+  --strip-components=1 \
+  -C vendor/crc32c
+```
+
+If `vendor/crc32c` already exists, stop and inspect it instead of extracting over
+it. The `&&` runs extraction only if creating the directory succeeds.
+
+The `tar` options mean:
+
+- `-x`: extract.
+- `-z`: decompress gzip.
+- `-f`: read the specified archive.
+- `-C`: extract into this directory.
+- `--strip-components=1`: remove the archive's outer directory.
+
+For example:
+
+```text
+crc32c-1.1.2/include/crc32c/crc32c.h
+                ↓
+vendor/crc32c/include/crc32c/crc32c.h
+```
+
+Unlike `git clone`, this creates no nested `.git` directory. Keep the included
+license files.
+
+### 3. Connect It to CMake
+
+In the root [CMakeLists.txt](../CMakeLists.txt), keep the existing CLI11
+`add_subdirectory()` line only once. Add the following block alongside it, before
+`add_library(zidanedb ...)`:
+
+```cmake
+set(CRC32C_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CRC32C_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(CRC32C_USE_GLOG OFF CACHE BOOL "" FORCE)
+set(CRC32C_INSTALL OFF CACHE BOOL "" FORCE)
+
+# Compatibility with this dependency's older CMake policy version.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
+add_subdirectory(vendor/crc32c EXCLUDE_FROM_ALL)
+```
+
+Disabling those optional components avoids needing CRC32C's test, benchmark, and
+logging dependencies. These options come from its
+[CMake configuration](https://github.com/google/crc32c/blob/1.1.2/CMakeLists.txt).
+
+For CMake 4.x, the policy setting accommodates this older dependency without
+editing its files, as described in
+[CMake's documentation](https://cmake.org/cmake/help/latest/variable/CMAKE_POLICY_VERSION_MINIMUM.html).
+
+Then, after the `add_library(zidanedb ...)` block, add:
+
+```cmake
+target_link_libraries(zidanedb PRIVATE crc32c)
+```
+
+This supplies the library and its include path. The implementation can then use:
+
+```cpp
+#include <crc32c/crc32c.h>
+```
+
+### 4. Record and Commit the Dependency
+
+Add CRC32C's version and upstream URL to `vendor/README.md`, then review and stage
+the relevant files:
+
+```bash
+git add vendor/crc32c vendor/README.md CMakeLists.txt
+git diff --cached --stat
+```
+
+Staging is not committing; commit when satisfied with the changes. If
+`CMakeLists.txt` has unrelated edits in progress, use `git add -p CMakeLists.txt`
+instead of staging that whole file.
+
+Once committed, CRC32C's source travels with ZidaneDB. Only the initial download
+needs internet access; subsequent builds use the local copy.
