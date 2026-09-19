@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <array>
 #include <cstdint>
 #include <ios>
 #include <iostream>
@@ -37,27 +38,48 @@ bool read_string(std::istream& stream, std::string& result, std::uint32_t max_le
 }
 
 bool read_uint64(std::istream& stream, std::uint64_t& result) {
-    if (!stream.read(reinterpret_cast<char*>(&result), sizeof(std::uint64_t))) {
-        return false;
+    result = 0;
+    std::uint8_t n;
+
+    for (int i = 0; i < 8; i++) {
+        if (!stream.read(reinterpret_cast<char*>(&n), sizeof(std::uint8_t))) {
+            return false;
+        }
+        result = result | (n << (i * 8));
     }
 
     return true;
 }
 
 void write_uint64(std::ostream& stream, const std::uint64_t n) {
-    stream.write(reinterpret_cast<const char*>(&n), sizeof(n));
+    const std::array<std::uint8_t, 8> bytes{
+        static_cast<std::uint8_t>(n & 0xFF),         static_cast<std::uint8_t>((n >> 8) & 0xFF),
+        static_cast<std::uint8_t>((n >> 16) & 0xFF), static_cast<std::uint8_t>((n >> 24) & 0xFF),
+        static_cast<std::uint8_t>((n >> 32) & 0xFF), static_cast<std::uint8_t>((n >> 40) & 0xFF),
+        static_cast<std::uint8_t>((n >> 48) & 0xFF), static_cast<std::uint8_t>((n >> 56) & 0xFF),
+    };
+    stream.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
 bool read_uint32(std::istream& stream, std::uint32_t& result) {
-    if (!stream.read(reinterpret_cast<char*>(&result), sizeof(std::uint32_t))) {
-        return false;
+    result = 0;
+    std::uint8_t n;
+
+    for (int i = 0; i < 4; i++) {
+        if (!stream.read(reinterpret_cast<char*>(&n), sizeof(std::uint8_t))) {
+            return false;
+        }
+        result = result | (n << (i * 8));
     }
 
     return true;
 }
 
 void write_uint32(std::ostream& stream, const std::uint32_t n) {
-    stream.write(reinterpret_cast<const char*>(&n), sizeof(n));
+    const std::array<std::uint8_t, 4> bytes{
+        static_cast<std::uint8_t>(n & 0xFF), static_cast<std::uint8_t>((n >> 8) & 0xFF),
+        static_cast<std::uint8_t>((n >> 16) & 0xFF), static_cast<std::uint8_t>((n >> 24) & 0xFF)};
+    stream.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
 bool read_uint8(std::istream& stream, std::uint8_t& result) {

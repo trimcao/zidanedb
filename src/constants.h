@@ -1,7 +1,6 @@
 #ifndef ZIDANEDB_CONSTANTS_H
 #define ZIDANEDB_CONSTANTS_H
 
-#include <cstddef>
 #include <cstdint>
 #include <string>
 
