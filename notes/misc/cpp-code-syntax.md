@@ -172,3 +172,80 @@ app.require_subcommand(1, 1);
 The arguments are the minimum and maximum number of subcommands. `(1, 1)`
 requires exactly one. In the actual Zidane CLI, the names are lowercase `get`,
 `put`, and `del`.
+
+## 5. Passing an Enum's Serialized Byte to CRC32C
+
+Consider this attempted helper:
+
+```cpp
+std::uint32_t extend_checksum_record_type(
+    std::uint32_t checksum,
+    const zidanedb::RecordType& type
+) {
+    return crc32c::Extend(
+        checksum,
+        reinterpret_cast<std::uint8_t*>(type),
+        sizeof(std::uint8_t)
+    );
+}
+```
+
+`crc32c::Extend()` expects a pointer to bytes, but `type` is a reference to an
+enum value. `reinterpret_cast<std::uint8_t*>(type)` tries to convert the enum's
+value into a pointer; it does not take the value's address.
+
+There is also a constness problem: `type` is `const`, while `std::uint8_t*`
+points to mutable data. `Extend()` expects a `const std::uint8_t*`.
+
+The clearest solution is to explicitly convert the enum to its serialized byte:
+
+```cpp
+std::uint32_t extend_checksum_record_type(
+    std::uint32_t checksum,
+    zidanedb::RecordType type
+) {
+    const auto encoded_type = static_cast<std::uint8_t>(type);
+
+    return crc32c::Extend(
+        checksum,
+        &encoded_type,
+        sizeof(encoded_type)
+    );
+}
+```
+
+Passing this small enum by value is simpler than passing it by `const`
+reference. The conversion makes the intention explicit:
+
+```text
+RecordType::Put
+        ↓ static_cast
+one uint8_t byte
+        ↓ address
+pointer passed to Extend()
+```
+
+It is technically possible to checksum the enum's in-memory representation:
+
+```cpp
+return crc32c::Extend(
+    checksum,
+    reinterpret_cast<const std::uint8_t*>(&type),
+    sizeof(type)
+);
+```
+
+The first version is preferable because it explicitly checksums the same
+`std::uint8_t` representation intended for serialization. This assumes that the
+enum has a fixed underlying type:
+
+```cpp
+enum class RecordType : std::uint8_t {
+    Put = 1,
+    Delete = 2
+};
+```
+
+The pointer `&encoded_type` remains valid throughout the `Extend()` call. It is
+fine that the local variable disappears afterward because `Extend()` consumes
+the bytes during the call and does not retain the pointer.

@@ -59,7 +59,13 @@ std::optional<std::string> Database::get(const std::string& key) const {
 
     if (!read_record(file, record)) {
         throw std::runtime_error("Cannot get the db record");
-    };
+    }
+    if (record.type != RecordType::Put) {
+        throw std::runtime_error("Record type must be PUT");
+    }
+    if (record.key != key) {
+        throw std::runtime_error("Key in record is not equal to the requested key");
+    }
 
     return record.value;
 }
@@ -73,7 +79,6 @@ void Database::put(const std::string& key, const std::string& val) {
         throw std::runtime_error("Value size exceeds max allowed value size");
     }
 
-    // TODO: compute the checksum properly
     Record record{RecordType::Put, key, val, 0};
     std::ofstream file;
     std::uint64_t db_offset;
