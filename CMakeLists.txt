@@ -105,6 +105,7 @@ if(BUILD_TESTING)
     add_executable(database_tests
         tests/database_test.cpp
         tests/index_test.cpp
+        tests/record_test.cpp
         tests/utils_test.cpp
     )
 
@@ -115,6 +116,7 @@ if(BUILD_TESTING)
     target_link_libraries(database_tests
         PRIVATE
             zidanedb
+            crc32c
             Catch2::Catch2WithMain
     )
 

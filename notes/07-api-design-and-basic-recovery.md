@@ -271,3 +271,135 @@ instead of staging that whole file.
 
 Once committed, CRC32C's source travels with ZidaneDB. Only the initial download
 needs internet access; subsequent builds use the local copy.
+
+## Appendix: Stream Write Error Handling
+
+### Why `write_uint32()` Can Return `void`
+
+`write_uint32()` can reasonably return `void` when writing code uses stream
+exceptions. Whether it should return `bool` depends on the error-handling model
+chosen for the serialization layer.
+
+#### Why Reading Returns `bool`
+
+Reading can fail for normal input-related reasons:
+
+- EOF.
+- A truncated integer.
+- A corrupted record.
+- Insufficient bytes.
+
+The caller needs to branch on that result:
+
+```cpp
+std::uint32_t value{};
+
+if (!read_uint32(stream, value)) {
+    return false;
+}
+```
+
+A read failure often means that the input is incomplete or invalid, not
+necessarily that the program itself failed.
+
+#### Why Writing Can Return `void`
+
+When writing, there is no equivalent of valid but incomplete input. The complete
+number is already available. The expected outcome is:
+
+```text
+write succeeds
+or
+an I/O error occurs
+```
+
+If exceptions are enabled:
+
+```cpp
+stream.exceptions(std::ios::failbit | std::ios::badbit);
+```
+
+then `stream.write()` throws `std::ios_base::failure` on failure. The helper does
+not need a return value:
+
+```cpp
+void write_uint32(std::ostream& stream, std::uint32_t value) {
+    // Construct the little-endian bytes.
+    stream.write(/* bytes and size */);
+}
+```
+
+This fits ZidaneDB's database write path, where the outer operation catches
+stream failures and translates them into a database error.
+
+#### Returning `bool` Is Also Possible
+
+Without stream exceptions, `stream.write()` normally sets the stream's error
+state instead of throwing. A self-contained helper could return that state:
+
+```cpp
+bool write_uint32(std::ostream& stream, std::uint32_t value) {
+    const std::array<std::uint8_t, 4> bytes{
+        static_cast<std::uint8_t>(value),
+        static_cast<std::uint8_t>(value >> 8),
+        static_cast<std::uint8_t>(value >> 16),
+        static_cast<std::uint8_t>(value >> 24),
+    };
+
+    stream.write(
+        reinterpret_cast<const char*>(bytes.data()),
+        static_cast<std::streamsize>(bytes.size())
+    );
+
+    return static_cast<bool>(stream);
+}
+```
+
+The caller must then always check it:
+
+```cpp
+if (!write_uint32(stream, value)) {
+    return false;
+}
+```
+
+Changing only `write_uint32()` would leave an inconsistent design. The same
+decision would also need to be made for:
+
+```text
+write_uint64()
+write_uint8()
+write_string()
+write_record()
+```
+
+Otherwise, a checked integer write could succeed while a later unchecked
+payload write fails.
+
+#### Recommendation for ZidaneDB
+
+For ZidaneDB's current design, keep write helpers returning `void` and enable
+stream exceptions around the complete write operation:
+
+```cpp
+file.exceptions(std::ios::failbit | std::ios::badbit);
+
+try {
+    write_record(file, record);
+    file.flush();
+} catch (const std::ios_base::failure&) {
+    // Translate to a database-level error.
+}
+```
+
+This gives one failure path for the entire record instead of checking every
+individual field. The asymmetry is intentional:
+
+```text
+read helper  -> bool because incomplete or corrupt input must be examined
+write helper -> void because an I/O failure becomes an exception
+```
+
+The important requirement is consistency: every production stream using the
+`void` write helpers must either convert write failures into exceptions or have
+its state checked after writing.
