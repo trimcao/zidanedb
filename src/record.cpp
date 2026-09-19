@@ -51,17 +51,18 @@ bool read_record(std::istream& stream, Record& record) {
     checksum = extend_checksum_uint32(checksum, record.value.size());
     checksum = extend_checksum_string(checksum, record.value);
 
-    if (!utils::read_uint32(stream, record.crc32c)) {
+    uint32_t stored_checksum;
+    if (!utils::read_uint32(stream, stored_checksum)) {
         return false;
     }
-    if (checksum != record.crc32c) {
+    if (checksum != stored_checksum) {
         return false;
     }
 
     return true;
 }
 
-void write_record(std::ostream& stream, Record& record) {
+void write_record(std::ostream& stream, const Record& record) {
     std::uint32_t checksum = 0;
 
     utils::write_uint8(stream, static_cast<std::uint8_t>(record.type));

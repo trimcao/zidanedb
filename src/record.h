@@ -13,11 +13,10 @@ struct Record {
     RecordType type;
     std::string key;
     std::string value;
-    std::uint32_t crc32c; // checksum
 };
 
 bool read_record(std::istream& stream, Record& record);
-void write_record(std::ostream& stream, Record& record);
+void write_record(std::ostream& stream, const Record& record);
 
 } // namespace zidanedb
 

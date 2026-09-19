@@ -665,7 +665,8 @@ TEST_CASE("oversized writes leave existing files and values unchanged", "[limits
     }
 }
 
-TEST_CASE("an oversized first write does not create a database file", "[limits][regression]") {
+TEST_CASE("an oversized first write does not modify an empty database file",
+          "[limits][regression]") {
     TemporaryDatabaseFile file{"oversized-write-new.zdb"};
     std::string key = "key";
     std::string value = "value";
@@ -674,11 +675,11 @@ TEST_CASE("an oversized first write does not create a database file", "[limits][
     SECTION("value is one byte too long") { value.assign(zidanedb::MAX_VALUE_SIZE + 1, 'v'); }
 
     zidanedb::Database database{file.path(), 1};
-    REQUIRE_FALSE(std::filesystem::exists(file.path()));
     const auto index_size = std::filesystem::file_size(file.idx_path());
+    const auto db_size = std::filesystem::file_size(file.path());
 
     CHECK_THROWS_AS(database.put(key, value), std::runtime_error);
-    CHECK_FALSE(std::filesystem::exists(file.path()));
+    CHECK(std::filesystem::file_size(file.path()) == db_size);
     CHECK(std::filesystem::file_size(file.idx_path()) == index_size);
 }
 
@@ -787,7 +788,6 @@ TEST_CASE("an empty index without a database file can be reopened before the fir
     }
 
     REQUIRE(std::filesystem::exists(file.idx_path()));
-    REQUIRE_FALSE(std::filesystem::exists(file.path()));
     {
         zidanedb::Database reopened{file.path(), 1};
         CHECK_FALSE(reopened.get("missing").has_value());

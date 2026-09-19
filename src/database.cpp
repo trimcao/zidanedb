@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "index.h"
 #include "record.h"
+#include "utils.h"
 #include "zidanedb/index_stats.h"
 #include <cstdint>
 #include <filesystem>
@@ -34,6 +35,13 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
     // check if the db file does not exist but the index file has contents
     if (!std::filesystem::exists(db_path_) && !index_->empty()) {
         throw std::runtime_error("DB file does not exist but Index file is not empty");
+    }
+
+    // load/setup the db file
+    if (std::filesystem::exists(db_path_)) {
+        load();
+    } else {
+        setup();
     }
 }
 
@@ -79,7 +87,7 @@ void Database::put(const std::string& key, const std::string& val) {
         throw std::runtime_error("Value size exceeds max allowed value size");
     }
 
-    Record record{RecordType::Put, key, val, 0};
+    Record record{RecordType::Put, key, val};
     std::ofstream file;
     std::uint64_t db_offset;
 
@@ -108,7 +116,7 @@ void Database::put(const std::string& key, const std::string& val) {
 bool Database::erase(const std::string& key) {
     auto exist = index_->find(key);
 
-    Record record{RecordType::Delete, key, "", 0};
+    Record record{RecordType::Delete, key, ""};
     std::ofstream file;
 
     if (exist) {
@@ -135,5 +143,47 @@ bool Database::erase(const std::string& key) {
 }
 
 IndexStats Database::get_index_stats() const { return index_->stats(); }
+
+void Database::load() {
+    if (!std::filesystem::exists(db_path_)) {
+        throw std::runtime_error("Database file does not exist");
+    }
+
+    std::ifstream file{db_path_, std::ios::binary};
+    if (!file) {
+        throw std::runtime_error("Could not open database file: " + db_path_.string());
+    }
+
+    if (!utils::read_string(file, magic_, DB_MAGIC.size()) || (magic_ != DB_MAGIC)) {
+        throw std::runtime_error("Invalid ZidaneDB Database file");
+    }
+    if (!utils::read_uint32(file, version_) || (version_ != DB_VERSION)) {
+        throw std::runtime_error("Unsupported ZidaneDB Database version");
+    }
+}
+
+void Database::setup() {
+    if (std::filesystem::exists(db_path_)) {
+        return;
+    }
+
+    magic_ = DB_MAGIC;
+    version_ = DB_VERSION;
+
+    try {
+        std::ofstream file{db_path_, std::ios::binary};
+        if (!file) {
+            throw std::runtime_error("Could not open the file " + db_path_.string());
+        }
+        file.exceptions(std::ios::failbit | std::ios::badbit);
+
+        utils::write_string(file, magic_, DB_MAGIC.size());
+        utils::write_uint32(file, version_);
+
+        file.flush();
+    } catch (const std::ios_base::failure& error) {
+        throw std::runtime_error{"Could not update database file: " + db_path_.string()};
+    }
+}
 
 } // namespace zidanedb

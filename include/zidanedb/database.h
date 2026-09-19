@@ -22,6 +22,9 @@ class Database {
     std::string magic_;
     std::uint32_t version_;
 
+    void load();
+    void setup();
+
   public:
     explicit Database(std::filesystem::path path, std::uint64_t num_index_buckets = 1'000'000);
     ~Database();
