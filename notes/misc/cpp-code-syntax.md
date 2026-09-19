@@ -249,3 +249,107 @@ enum class RecordType : std::uint8_t {
 The pointer `&encoded_type` remains valid throughout the `Extend()` call. It is
 fine that the local variable disappears afterward because `Extend()` consumes
 the bytes during the call and does not retain the pointer.
+
+## 6. Reading and Writing Little-Endian Unsigned Integers
+
+A writer that shifts an unsigned integer and stores its bytes from least
+significant to most significant correctly produces little-endian output. For
+example, `0x12345678` should be serialized as:
+
+```text
+78 56 34 12
+```
+
+The matching reader needs special care because C++ applies integral promotion
+to small integer types. In this expression:
+
+```cpp
+result |= n << (i * 8);
+```
+
+`n` may be a `std::uint8_t`, but C++ normally promotes it to `int` before the
+shift. This creates two problems:
+
+- In a 64-bit reader, shifts of 32, 40, 48, and 56 are performed on a typically
+  32-bit `int`. A shift count greater than or equal to the width of the type is
+  undefined behavior.
+- If the highest bit of a byte is set, shifting it can produce a negative
+  `int`. Converting that value to `std::uint64_t` can then fill the upper bits
+  with ones.
+
+Cast the byte to the destination type before shifting:
+
+```cpp
+// In a uint32 reader:
+result |= static_cast<std::uint32_t>(n) << (i * 8);
+
+// In a uint64 reader:
+result |= static_cast<std::uint64_t>(n) << (i * 8);
+```
+
+The location of the cast is important:
+
+```cpp
+// Correct: the shift is performed as uint64_t.
+static_cast<std::uint64_t>(n) << 40
+
+// Too late: the invalid int shift has already happened.
+static_cast<std::uint64_t>(n << 40)
+```
+
+For example, the bytes:
+
+```text
+78 56 34 12 ef cd ab 89
+```
+
+represent `0x89abcdef12345678` in little-endian order. A reader that shifts the
+promoted `int` instead of a `std::uint64_t` can produce an unrelated result.
+
+Defining little-endian integer helpers is not enough if other serializers bypass
+them. String length prefixes should use the same helpers:
+
+```cpp
+void write_string(std::ostream& stream, const std::string& value,
+                  std::uint32_t max_length) {
+    // Validate the size first.
+    const auto length = static_cast<std::uint32_t>(value.size());
+    write_uint32(stream, length);
+    stream.write(value.data(), static_cast<std::streamsize>(value.size()));
+}
+```
+
+The read path must propagate a failed prefix read:
+
+```cpp
+std::uint32_t length{};
+if (!read_uint32(stream, length)) {
+    return false;
+}
+```
+
+Byte-order tests should not only round-trip a value through the matching writer
+and reader. If both contain the same mistake, a round trip can still pass.
+Instead, test each direction against independently specified bytes:
+
+```cpp
+std::ostringstream output;
+write_uint32(output, 0x12345678U);
+CHECK(output.str() == std::string{"\x78\x56\x34\x12", 4});
+
+std::istringstream input{std::string{"\x78\x56\x34\x12", 4}};
+std::uint32_t result{};
+REQUIRE(read_uint32(input, result));
+CHECK(result == 0x12345678U);
+```
+
+Useful boundary values include:
+
+```text
+uint32: 0, 1, 0x7fffffff, 0x80000000, 0xffffffff
+uint64: 0, 1, 0x0000000100000000,
+        0x7fffffffffffffff, 0x8000000000000000, 0xffffffffffffffff
+```
+
+Also test inputs that contain fewer than four or eight bytes so the readers'
+failure behavior is explicit.

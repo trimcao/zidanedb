@@ -9,6 +9,108 @@
 #include <string>
 #include <string_view>
 
+TEST_CASE("uint32 helpers use little-endian byte order", "[utils][endian][regression]") {
+    constexpr std::uint32_t value = 0x89ABCDEFU;
+    const std::string encoded{static_cast<char>(0xEF), static_cast<char>(0xCD),
+                              static_cast<char>(0xAB), static_cast<char>(0x89)};
+
+    SECTION("writer produces the specified bytes") {
+        std::ostringstream stream;
+        zidanedb::utils::write_uint32(stream, value);
+
+        CHECK(stream.str() == encoded);
+    }
+
+    SECTION("reader accepts independently specified bytes") {
+        std::istringstream stream{encoded};
+        std::uint32_t result{};
+
+        REQUIRE(zidanedb::utils::read_uint32(stream, result));
+        CHECK(result == value);
+    }
+}
+
+TEST_CASE("uint64 helpers use little-endian byte order", "[utils][endian][regression]") {
+    constexpr std::uint64_t value = UINT64_C(0xFEDCBA9876543210);
+    const std::string encoded{
+        static_cast<char>(0x10), static_cast<char>(0x32), static_cast<char>(0x54),
+        static_cast<char>(0x76), static_cast<char>(0x98), static_cast<char>(0xBA),
+        static_cast<char>(0xDC), static_cast<char>(0xFE),
+    };
+
+    SECTION("writer produces the specified bytes") {
+        std::ostringstream stream;
+        zidanedb::utils::write_uint64(stream, value);
+
+        CHECK(stream.str() == encoded);
+    }
+
+    SECTION("reader accepts independently specified bytes") {
+        std::istringstream stream{encoded};
+        std::uint64_t result{};
+
+        REQUIRE(zidanedb::utils::read_uint64(stream, result));
+        CHECK(result == value);
+    }
+}
+
+TEST_CASE("unsigned integer readers reject every truncated byte sequence",
+          "[utils][endian][truncation][regression]") {
+    SECTION("uint32") {
+        const std::string complete{static_cast<char>(0xEF), static_cast<char>(0xCD),
+                                   static_cast<char>(0xAB), static_cast<char>(0x89)};
+
+        for (std::size_t bytes_to_keep = 0; bytes_to_keep < complete.size(); ++bytes_to_keep) {
+            CAPTURE(bytes_to_keep);
+            std::istringstream stream{complete.substr(0, bytes_to_keep)};
+            std::uint32_t result{};
+
+            CHECK_FALSE(zidanedb::utils::read_uint32(stream, result));
+        }
+    }
+
+    SECTION("uint64") {
+        const std::string complete{
+            static_cast<char>(0x10), static_cast<char>(0x32), static_cast<char>(0x54),
+            static_cast<char>(0x76), static_cast<char>(0x98), static_cast<char>(0xBA),
+            static_cast<char>(0xDC), static_cast<char>(0xFE),
+        };
+
+        for (std::size_t bytes_to_keep = 0; bytes_to_keep < complete.size(); ++bytes_to_keep) {
+            CAPTURE(bytes_to_keep);
+            std::istringstream stream{complete.substr(0, bytes_to_keep)};
+            std::uint64_t result{};
+
+            CHECK_FALSE(zidanedb::utils::read_uint64(stream, result));
+        }
+    }
+}
+
+TEST_CASE("string helpers use a little-endian length prefix", "[utils][endian][regression]") {
+    const std::string encoded{static_cast<char>(0x03),
+                              static_cast<char>(0x00),
+                              static_cast<char>(0x00),
+                              static_cast<char>(0x00),
+                              'a',
+                              'b',
+                              'c'};
+
+    SECTION("writer produces the specified bytes") {
+        std::ostringstream stream;
+        zidanedb::utils::write_string(stream, "abc", 3);
+
+        CHECK(stream.str() == encoded);
+    }
+
+    SECTION("reader accepts independently specified bytes") {
+        std::istringstream stream{encoded};
+        std::string result;
+
+        REQUIRE(zidanedb::utils::read_string(stream, result, 3));
+        CHECK(result == "abc");
+    }
+}
+
 TEST_CASE("serialized string sizes include a prefix and use a wide type", "[utils][regression]") {
     using Size = decltype(zidanedb::utils::string_size(std::string_view{}));
     CHECK(std::numeric_limits<Size>::max() > std::numeric_limits<std::uint32_t>::max());

@@ -14,13 +14,13 @@ void write_string(std::ostream& stream, const std::string& s, std::uint32_t max_
         throw std::length_error("String is too large to serialize");
     }
     const std::uint32_t length = static_cast<std::uint32_t>(s.size());
-    stream.write(reinterpret_cast<const char*>(&length), sizeof(length));
+    write_uint32(stream, length);
     stream.write(s.data(), static_cast<std::streamsize>(s.size()));
 }
 
 bool read_string(std::istream& stream, std::string& result, std::uint32_t max_length) {
     std::uint32_t length = {};
-    if (!stream.read(reinterpret_cast<char*>(&length), sizeof(length))) {
+    if (!read_uint32(stream, length)) {
         return false;
     }
 
@@ -45,7 +45,7 @@ bool read_uint64(std::istream& stream, std::uint64_t& result) {
         if (!stream.read(reinterpret_cast<char*>(&n), sizeof(std::uint8_t))) {
             return false;
         }
-        result = result | (n << (i * 8));
+        result |= static_cast<std::uint64_t>(n) << (i * 8);
     }
 
     return true;
@@ -69,7 +69,7 @@ bool read_uint32(std::istream& stream, std::uint32_t& result) {
         if (!stream.read(reinterpret_cast<char*>(&n), sizeof(std::uint8_t))) {
             return false;
         }
-        result = result | (n << (i * 8));
+        result |= static_cast<std::uint32_t>(n) << (i * 8);
     }
 
     return true;
