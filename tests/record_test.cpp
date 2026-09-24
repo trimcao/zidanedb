@@ -54,7 +54,7 @@ TEST_CASE("read_record accepts a record with a valid CRC32C checksum",
     std::istringstream stream{valid_record_bytes(expected)};
     zidanedb::Record actual{};
 
-    REQUIRE(zidanedb::read_record(stream, actual));
+    REQUIRE(zidanedb::read_record(stream, actual) == zidanedb::RecordReadStatus::Success);
     CHECK(actual.type == expected.type);
     CHECK(actual.key == expected.key);
     CHECK(actual.value == expected.value);
@@ -72,7 +72,7 @@ TEST_CASE("read_record rejects a record when a value byte is corrupted",
 
     std::istringstream stream{bytes};
     zidanedb::Record result{};
-    CHECK_FALSE(zidanedb::read_record(stream, result));
+    CHECK_FALSE(zidanedb::read_record(stream, result) == zidanedb::RecordReadStatus::Success);
 }
 
 TEST_CASE("read_record rejects a record when its type byte is corrupted",
@@ -84,7 +84,7 @@ TEST_CASE("read_record rejects a record when its type byte is corrupted",
 
     std::istringstream stream{bytes};
     zidanedb::Record result{};
-    CHECK_FALSE(zidanedb::read_record(stream, result));
+    CHECK_FALSE(zidanedb::read_record(stream, result) == zidanedb::RecordReadStatus::Success);
 }
 
 TEST_CASE("read_record rejects a record when its key length is corrupted",
@@ -97,7 +97,7 @@ TEST_CASE("read_record rejects a record when its key length is corrupted",
 
     std::istringstream stream{bytes};
     zidanedb::Record result{};
-    CHECK_FALSE(zidanedb::read_record(stream, result));
+    CHECK_FALSE(zidanedb::read_record(stream, result) == zidanedb::RecordReadStatus::Success);
 }
 
 TEST_CASE("read_record rejects a record when a key byte is corrupted",
@@ -110,7 +110,7 @@ TEST_CASE("read_record rejects a record when a key byte is corrupted",
 
     std::istringstream stream{bytes};
     zidanedb::Record result{};
-    CHECK_FALSE(zidanedb::read_record(stream, result));
+    CHECK_FALSE(zidanedb::read_record(stream, result) == zidanedb::RecordReadStatus::Success);
 }
 
 TEST_CASE("read_record rejects a record when its value length is corrupted",
@@ -124,7 +124,7 @@ TEST_CASE("read_record rejects a record when its value length is corrupted",
 
     std::istringstream stream{bytes};
     zidanedb::Record result{};
-    CHECK_FALSE(zidanedb::read_record(stream, result));
+    CHECK_FALSE(zidanedb::read_record(stream, result) == zidanedb::RecordReadStatus::Success);
 }
 
 TEST_CASE("read_record rejects a record when its stored checksum is corrupted",
@@ -137,7 +137,7 @@ TEST_CASE("read_record rejects a record when its stored checksum is corrupted",
 
     std::istringstream stream{bytes};
     zidanedb::Record result{};
-    CHECK_FALSE(zidanedb::read_record(stream, result));
+    CHECK_FALSE(zidanedb::read_record(stream, result) == zidanedb::RecordReadStatus::Success);
 }
 
 TEST_CASE("read_record rejects every truncated prefix of a valid record",
@@ -150,7 +150,7 @@ TEST_CASE("read_record rejects every truncated prefix of a valid record",
         std::istringstream stream{complete.substr(0, bytes_to_keep)};
         zidanedb::Record result{};
 
-        CHECK_FALSE(zidanedb::read_record(stream, result));
+        CHECK_FALSE(zidanedb::read_record(stream, result) == zidanedb::RecordReadStatus::Success);
     }
 }
 
@@ -170,7 +170,7 @@ TEST_CASE("record checksums support empty fields and embedded null bytes",
 
     std::istringstream input{output.str()};
     zidanedb::Record actual{};
-    REQUIRE(zidanedb::read_record(input, actual));
+    REQUIRE(zidanedb::read_record(input, actual) == zidanedb::RecordReadStatus::Success);
     CHECK(actual.type == expected.type);
     CHECK(actual.key == expected.key);
     CHECK(actual.value == expected.value);

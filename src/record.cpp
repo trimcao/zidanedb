@@ -29,37 +29,56 @@ std::uint32_t extend_checksum_uint32(std::uint32_t checksum, std::uint32_t numbe
 
 namespace zidanedb {
 
-bool read_record(std::istream& stream, Record& record) {
+RecordReadStatus read_record(std::istream& stream, Record& record) {
+    Record candidate;
+
     std::uint32_t checksum = 0;
+    utils::ReadStatus read_status{};
 
     std::uint8_t type{};
-    if (!utils::read_uint8(stream, type)) {
-        return false;
+    if ((read_status = utils::read_uint8(stream, type)) != utils::ReadStatus::Success) {
+        return RecordReadStatus::EndOfFile;
     }
-    record.type = static_cast<RecordType>(type);
-    checksum = extend_checksum_record_type(checksum, record.type);
+    candidate.type = static_cast<RecordType>(type);
+    if (candidate.type != RecordType::Put && candidate.type != RecordType::Delete) {
+        return RecordReadStatus::InvalidType;
+    }
+    checksum = extend_checksum_record_type(checksum, candidate.type);
 
-    if (!utils::read_string(stream, record.key, MAX_KEY_SIZE)) {
-        return false;
+    // note: we already check the stored string length inside read_string()
+    // so at least we will reject a corrupted length that's too big.
+    if ((read_status = utils::read_string(stream, candidate.key, MAX_KEY_SIZE)) !=
+        utils::ReadStatus::Success) {
+        if (read_status == utils::ReadStatus::InvalidLength) {
+            return RecordReadStatus::InvalidLength;
+        } else {
+            return RecordReadStatus::Truncated;
+        }
     }
-    checksum = extend_checksum_uint32(checksum, record.key.size());
-    checksum = extend_checksum_string(checksum, record.key);
+    checksum = extend_checksum_uint32(checksum, candidate.key.size());
+    checksum = extend_checksum_string(checksum, candidate.key);
 
-    if (!utils::read_string(stream, record.value, MAX_VALUE_SIZE)) {
-        return false;
+    if ((read_status = utils::read_string(stream, candidate.value, MAX_VALUE_SIZE)) !=
+        utils::ReadStatus::Success) {
+        if (read_status == utils::ReadStatus::InvalidLength) {
+            return RecordReadStatus::InvalidLength;
+        } else {
+            return RecordReadStatus::Truncated;
+        }
     }
-    checksum = extend_checksum_uint32(checksum, record.value.size());
-    checksum = extend_checksum_string(checksum, record.value);
+    checksum = extend_checksum_uint32(checksum, candidate.value.size());
+    checksum = extend_checksum_string(checksum, candidate.value);
 
     uint32_t stored_checksum;
-    if (!utils::read_uint32(stream, stored_checksum)) {
-        return false;
+    if ((read_status = utils::read_uint32(stream, stored_checksum)) != utils::ReadStatus::Success) {
+        return RecordReadStatus::Truncated;
     }
     if (checksum != stored_checksum) {
-        return false;
+        return RecordReadStatus::ChecksumMismatch;
     }
 
-    return true;
+    record = std::move(candidate);
+    return RecordReadStatus::Success;
 }
 
 void write_record(std::ostream& stream, const Record& record) {

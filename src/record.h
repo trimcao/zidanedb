@@ -15,7 +15,16 @@ struct Record {
     std::string value;
 };
 
-bool read_record(std::istream& stream, Record& record);
+enum class RecordReadStatus {
+    Success,
+    EndOfFile,
+    Truncated,
+    InvalidLength,
+    ChecksumMismatch,
+    InvalidType
+};
+
+RecordReadStatus read_record(std::istream& stream, Record& record);
 void write_record(std::ostream& stream, const Record& record);
 
 } // namespace zidanedb

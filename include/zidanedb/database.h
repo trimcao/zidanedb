@@ -11,6 +11,9 @@
 
 namespace zidanedb {
 
+// forward declare RecordScanResult to keep "record.h" private
+struct RecordScanResult;
+
 class Index;
 
 class Database {
@@ -24,6 +27,13 @@ class Database {
 
     void load();
     void setup();
+
+    // scan all the data records, and find the longest valid prefix,
+    // rebuild the index (from the last_applied_offset),
+    // truncate incomplete tail if found.
+    RecordScanResult scan_records(std::uint64_t start_offset = 0);
+    void recover_records();
+    std::uint64_t header_size() const;
 
   public:
     explicit Database(std::filesystem::path path, std::uint64_t num_index_buckets = 1'000'000);

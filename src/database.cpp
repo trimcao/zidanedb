@@ -17,6 +17,12 @@
 
 namespace zidanedb {
 
+struct RecordScanResult {
+    RecordReadStatus status;
+    std::uint64_t last_valid_offset;
+    std::uint64_t failing_record_offset;
+};
+
 Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
     : db_path_{std::move(path)}, idx_path_{db_path_} {
 
@@ -65,7 +71,7 @@ std::optional<std::string> Database::get(const std::string& key) const {
         throw std::runtime_error("Seek failed");
     }
 
-    if (!read_record(file, record)) {
+    if (read_record(file, record) != RecordReadStatus::Success) {
         throw std::runtime_error("Cannot get the db record");
     }
     if (record.type != RecordType::Put) {
@@ -154,12 +160,16 @@ void Database::load() {
         throw std::runtime_error("Could not open database file: " + db_path_.string());
     }
 
-    if (!utils::read_string(file, magic_, DB_MAGIC.size()) || (magic_ != DB_MAGIC)) {
+    if ((utils::read_string(file, magic_, DB_MAGIC.size()) != utils::ReadStatus::Success) ||
+        (magic_ != DB_MAGIC)) {
         throw std::runtime_error("Invalid ZidaneDB Database file");
     }
-    if (!utils::read_uint32(file, version_) || (version_ != DB_VERSION)) {
+    if ((utils::read_uint32(file, version_) != utils::ReadStatus::Success) ||
+        (version_ != DB_VERSION)) {
         throw std::runtime_error("Unsupported ZidaneDB Database version");
     }
+
+    scan_records();
 }
 
 void Database::setup() {
@@ -185,5 +195,64 @@ void Database::setup() {
         throw std::runtime_error{"Could not update database file: " + db_path_.string()};
     }
 }
+
+std::uint64_t Database::header_size() const {
+    return utils::string_size(magic_) + sizeof(version_);
+}
+
+RecordScanResult Database::scan_records(std::uint64_t start_offset) {
+    std::ifstream file{db_path_, std::ios::binary};
+    if (!file) {
+        throw std::runtime_error("Could not open the file");
+    }
+
+    // set exception so underlying failures throw automatically
+    file.exceptions(std::ios::badbit);
+
+    // TODO: maybe I need to verify start_offset value
+    if (start_offset == 0) {
+        start_offset = header_size();
+    }
+
+    file.seekg(start_offset, std::ios::beg);
+    if (!file) {
+        throw std::runtime_error("Seek failed");
+    }
+
+    // start reading records
+    // for now: rebuild the index
+    Record record{};
+    RecordReadStatus status{};
+    auto record_start = start_offset;
+    auto record_end = file.tellg();
+    std::uint64_t last_valid_offset = 0;
+    std::uint64_t failing_record_offset = 0;
+    while ((status = read_record(file, record)) == RecordReadStatus::Success) {
+        last_valid_offset = record_start;
+        record_end = file.tellg();
+        // TODO: rebuild index here?
+        record_start = record_end;
+    }
+    if (status != RecordReadStatus::EndOfFile) {
+        failing_record_offset = record_start;
+
+        std::cout << "db file has some problem, error code: " << static_cast<std::uint8_t>(status)
+                  << '\n';
+
+        // std::cout << "truncating the file...\n";
+
+        // // Close the stream before resizing
+        // file.close();
+
+        // // Truncate the file at the recorded position
+        // std::filesystem::resize_file(db_path_, record_end);
+    } else {
+        std::cout << "db file is healthy\n";
+    }
+
+    return RecordScanResult{status, last_valid_offset, failing_record_offset};
+}
+
+void Database::recover_records() {}
 
 } // namespace zidanedb

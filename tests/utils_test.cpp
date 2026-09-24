@@ -9,6 +9,8 @@
 #include <string>
 #include <string_view>
 
+using zidanedb::utils::ReadStatus;
+
 TEST_CASE("uint32 helpers use little-endian byte order", "[utils][endian][regression]") {
     constexpr std::uint32_t value = 0x89ABCDEFU;
     const std::string encoded{static_cast<char>(0xEF), static_cast<char>(0xCD),
@@ -25,7 +27,7 @@ TEST_CASE("uint32 helpers use little-endian byte order", "[utils][endian][regres
         std::istringstream stream{encoded};
         std::uint32_t result{};
 
-        REQUIRE(zidanedb::utils::read_uint32(stream, result));
+        REQUIRE(zidanedb::utils::read_uint32(stream, result) == ReadStatus::Success);
         CHECK(result == value);
     }
 }
@@ -49,7 +51,7 @@ TEST_CASE("uint64 helpers use little-endian byte order", "[utils][endian][regres
         std::istringstream stream{encoded};
         std::uint64_t result{};
 
-        REQUIRE(zidanedb::utils::read_uint64(stream, result));
+        REQUIRE(zidanedb::utils::read_uint64(stream, result) == ReadStatus::Success);
         CHECK(result == value);
     }
 }
@@ -65,7 +67,7 @@ TEST_CASE("unsigned integer readers reject every truncated byte sequence",
             std::istringstream stream{complete.substr(0, bytes_to_keep)};
             std::uint32_t result{};
 
-            CHECK_FALSE(zidanedb::utils::read_uint32(stream, result));
+            CHECK_FALSE(zidanedb::utils::read_uint32(stream, result) == ReadStatus::Success);
         }
     }
 
@@ -81,7 +83,7 @@ TEST_CASE("unsigned integer readers reject every truncated byte sequence",
             std::istringstream stream{complete.substr(0, bytes_to_keep)};
             std::uint64_t result{};
 
-            CHECK_FALSE(zidanedb::utils::read_uint64(stream, result));
+            CHECK_FALSE(zidanedb::utils::read_uint64(stream, result) == ReadStatus::Success);
         }
     }
 }
@@ -106,7 +108,7 @@ TEST_CASE("string helpers use a little-endian length prefix", "[utils][endian][r
         std::istringstream stream{encoded};
         std::string result;
 
-        REQUIRE(zidanedb::utils::read_string(stream, result, 3));
+        REQUIRE(zidanedb::utils::read_string(stream, result, 3) == ReadStatus::Success);
         CHECK(result == "abc");
     }
 }
@@ -132,7 +134,7 @@ TEST_CASE("string helpers round-trip boundary lengths and binary data",
     CHECK(stream.str().size() == sizeof(std::uint32_t) + value.size());
 
     std::string result = "previous contents";
-    REQUIRE(zidanedb::utils::read_string(stream, result, limit));
+    REQUIRE(zidanedb::utils::read_string(stream, result, limit) == ReadStatus::Success);
     CHECK(result == value);
 }
 
@@ -152,7 +154,7 @@ TEST_CASE("read_string rejects oversized lengths before resizing", "[utils][limi
     stream.write("hello", 5);
     std::string result = "unchanged";
 
-    REQUIRE_FALSE(zidanedb::utils::read_string(stream, result, 4));
+    REQUIRE_FALSE(zidanedb::utils::read_string(stream, result, 4) == ReadStatus::Success);
     CHECK(result == "unchanged");
     // Only the prefix should have been consumed, not the payload.
     CHECK(stream.tellg() == std::streampos{sizeof(std::uint32_t)});
@@ -168,5 +170,5 @@ TEST_CASE("read_string rejects truncated prefixes and payloads", "[utils][regres
     SECTION("payload is shorter than its declared length") { stream.write("ab", 2); }
 
     std::string result;
-    CHECK_FALSE(zidanedb::utils::read_string(stream, result, 4));
+    CHECK_FALSE(zidanedb::utils::read_string(stream, result, 4) == ReadStatus::Success);
 }

@@ -18,37 +18,44 @@ void write_string(std::ostream& stream, const std::string& s, std::uint32_t max_
     stream.write(s.data(), static_cast<std::streamsize>(s.size()));
 }
 
-bool read_string(std::istream& stream, std::string& result, std::uint32_t max_length) {
+ReadStatus read_string(std::istream& stream, std::string& result, std::uint32_t max_length) {
     std::uint32_t length = {};
-    if (!read_uint32(stream, length)) {
-        return false;
+    ReadStatus status{};
+
+    if ((status = read_uint32(stream, length)) != ReadStatus::Success) {
+        return status;
     }
 
     if (length > max_length) {
-        return false;
+        return ReadStatus::InvalidLength;
     }
 
     result.resize(length);
 
     if (!stream.read(result.data(), static_cast<std::streamsize>(length))) {
-        return false;
+        return ReadStatus::Truncated;
     }
 
-    return true;
+    return ReadStatus::Success;
 }
 
-bool read_uint64(std::istream& stream, std::uint64_t& result) {
+ReadStatus read_uint64(std::istream& stream, std::uint64_t& result) {
     result = 0;
     std::uint8_t n;
+    int i;
 
-    for (int i = 0; i < 8; i++) {
+    for (i = 0; i < 8; i++) {
         if (!stream.read(reinterpret_cast<char*>(&n), sizeof(std::uint8_t))) {
-            return false;
+            if (i == 0) {
+                return ReadStatus::EndOfInput;
+            } else {
+                return ReadStatus::Truncated;
+            }
         }
         result |= static_cast<std::uint64_t>(n) << (i * 8);
     }
 
-    return true;
+    return ReadStatus::Success;
 }
 
 void write_uint64(std::ostream& stream, const std::uint64_t n) {
@@ -61,18 +68,23 @@ void write_uint64(std::ostream& stream, const std::uint64_t n) {
     stream.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
-bool read_uint32(std::istream& stream, std::uint32_t& result) {
+ReadStatus read_uint32(std::istream& stream, std::uint32_t& result) {
     result = 0;
     std::uint8_t n;
+    int i;
 
-    for (int i = 0; i < 4; i++) {
+    for (i = 0; i < 4; i++) {
         if (!stream.read(reinterpret_cast<char*>(&n), sizeof(std::uint8_t))) {
-            return false;
+            if (i == 0) {
+                return ReadStatus::EndOfInput;
+            } else {
+                return ReadStatus::Truncated;
+            }
         }
         result |= static_cast<std::uint32_t>(n) << (i * 8);
     }
 
-    return true;
+    return ReadStatus::Success;
 }
 
 void write_uint32(std::ostream& stream, const std::uint32_t n) {
@@ -82,12 +94,12 @@ void write_uint32(std::ostream& stream, const std::uint32_t n) {
     stream.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
-bool read_uint8(std::istream& stream, std::uint8_t& result) {
+ReadStatus read_uint8(std::istream& stream, std::uint8_t& result) {
     if (!stream.read(reinterpret_cast<char*>(&result), sizeof(std::uint8_t))) {
-        return false;
+        return ReadStatus::EndOfInput;
     }
 
-    return true;
+    return ReadStatus::Success;
 }
 
 void write_uint8(std::ostream& stream, const std::uint8_t n) {

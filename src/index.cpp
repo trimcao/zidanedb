@@ -38,7 +38,7 @@ EntryLocation Index::find_entry_offset(std::istream& file, const std::string& ke
         if (!file) {
             throw std::runtime_error{"seek failed"};
         }
-        if (!utils::read_uint64(file, idx_chain_offset)) {
+        if (utils::read_uint64(file, idx_chain_offset) != utils::ReadStatus::Success) {
             throw std::runtime_error{"could not read chain_offset from bucket"};
         }
 
@@ -101,7 +101,7 @@ std::optional<std::uint64_t> Index::find(const std::string& key) const {
         if (!file) {
             throw std::runtime_error{"seek failed"};
         }
-        if (!utils::read_uint64(file, read_entry_header.db_offset)) {
+        if (utils::read_uint64(file, read_entry_header.db_offset) != utils::ReadStatus::Success) {
             throw std::runtime_error{"cannot read db offset"};
         }
         return read_entry_header.db_offset;
@@ -226,13 +226,16 @@ void Index::load() {
         throw std::runtime_error("Could not open index file: " + path_.string());
     }
 
-    if (!utils::read_string(file, magic_, INDEX_MAGIC.size()) || (magic_ != INDEX_MAGIC)) {
+    if ((utils::read_string(file, magic_, INDEX_MAGIC.size()) != utils::ReadStatus::Success) ||
+        (magic_ != INDEX_MAGIC)) {
         throw std::runtime_error("Invalid ZidaneDB Index file");
     }
-    if (!utils::read_uint32(file, version_) || (version_ != INDEX_VERSION)) {
+    if ((utils::read_uint32(file, version_) != utils::ReadStatus::Success) ||
+        (version_ != INDEX_VERSION)) {
         throw std::runtime_error("Unsupported ZidaneDB Index version");
     }
-    if (!utils::read_uint64(file, num_buckets_) || (num_buckets_ == 0)) {
+    if ((utils::read_uint64(file, num_buckets_) != utils::ReadStatus::Success) ||
+        (num_buckets_ == 0)) {
         throw std::runtime_error("Invalid ZidaneDB Index number of buckets");
     }
 
@@ -303,7 +306,7 @@ IndexStats Index::stats() const {
             if (!file) {
                 throw std::runtime_error{"seek failed"};
             }
-            if (!utils::read_uint64(file, idx_chain_offset)) {
+            if (utils::read_uint64(file, idx_chain_offset) != utils::ReadStatus::Success) {
                 throw std::runtime_error{"could not read chain_offset from bucket"};
             }
 
@@ -350,13 +353,13 @@ IndexEntry Index::read_entry(std::istream& file, std::uint64_t entry_offset) con
     if (!file) {
         throw std::runtime_error{"seek failed"};
     }
-    if (!utils::read_uint64(file, entry.db_offset)) {
+    if (utils::read_uint64(file, entry.db_offset) != utils::ReadStatus::Success) {
         throw std::runtime_error{"could not read db offset"};
     }
-    if (!utils::read_uint64(file, entry.next_entry_offset)) {
+    if (utils::read_uint64(file, entry.next_entry_offset) != utils::ReadStatus::Success) {
         throw std::runtime_error{"could not read next entry offset"};
     }
-    if (!utils::read_string(file, entry.key, MAX_KEY_SIZE)) {
+    if (utils::read_string(file, entry.key, MAX_KEY_SIZE) != utils::ReadStatus::Success) {
         throw std::runtime_error{"could not read key"};
     }
 
@@ -376,8 +379,13 @@ bool Index::empty() const {
         if (!file) {
             throw std::runtime_error{"seek failed"};
         }
+
+        utils::ReadStatus read_status{};
         for (std::uint64_t i = 0; i < num_buckets_; i++) {
-            if (!utils::read_uint64(file, idx_chain_offset)) {
+            read_status = utils::read_uint64(file, idx_chain_offset);
+            // std::cout << "read status: " << static_cast<std::uint8_t>(read_status) << "\n";
+
+            if (read_status != utils::ReadStatus::Success) {
                 throw std::runtime_error{"could not read chain_offset from bucket"};
             }
 
