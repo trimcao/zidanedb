@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -64,6 +65,70 @@ class ScopedReadOnlyFile {
     std::filesystem::path path_;
     std::filesystem::perms original_permissions_;
 };
+
+class TemporaryDirectory {
+  public:
+    explicit TemporaryDirectory(const std::string& name)
+        : path_{std::filesystem::temp_directory_path() / name} {
+        std::error_code ignored;
+        std::filesystem::remove_all(path_, ignored);
+        std::filesystem::create_directories(path_);
+    }
+
+    ~TemporaryDirectory() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path_, ignored);
+    }
+
+    const std::filesystem::path& path() const { return path_; }
+
+  private:
+    std::filesystem::path path_;
+};
+
+std::string read_file_bytes(const std::filesystem::path& path) {
+    std::ifstream input{path, std::ios::binary};
+    if (!input) {
+        throw std::runtime_error{"Could not read test file: " + path.string()};
+    }
+
+    return std::string{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+}
+
+void corrupt_last_byte(const std::filesystem::path& path) {
+    std::fstream file{path, std::ios::in | std::ios::out | std::ios::binary};
+    if (!file) {
+        throw std::runtime_error{"Could not open test file: " + path.string()};
+    }
+
+    file.seekg(-1, std::ios::end);
+    char byte{};
+    file.read(&byte, 1);
+    byte ^= 0x01;
+    file.seekp(-1, std::ios::end);
+    file.write(&byte, 1);
+    file.flush();
+
+    if (!file) {
+        throw std::runtime_error{"Could not corrupt test file: " + path.string()};
+    }
+}
+
+bool has_index_staging_directory(const std::filesystem::path& index_path) {
+    auto parent = index_path.parent_path();
+    if (parent.empty()) {
+        parent = ".";
+    }
+
+    const auto prefix = "." + index_path.filename().string() + ".rebuild-";
+    for (const auto& entry : std::filesystem::directory_iterator{parent}) {
+        if (entry.is_directory() && entry.path().filename().string().starts_with(prefix)) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 } // namespace
 
@@ -894,4 +959,124 @@ TEST_CASE("database reads work with a read-only index", "[permissions][regressio
         CHECK(index.empty() == !populated);
     }
     CHECK(std::filesystem::status(file.idx_path()).permissions() == original_permissions);
+}
+
+TEST_CASE("rebuilding an index replays puts, replacements, and deletes",
+          "[database][recovery][index-rebuild][regression]") {
+    TemporaryDatabaseFile file{"rebuild-index-replays-log.zdb"};
+
+    {
+        zidanedb::Database database{file.path(), 4};
+        database.put("a", "old");
+        database.put("b", "value");
+        database.put("a", "new");
+        REQUIRE(database.erase("b"));
+
+        // Removing the current index proves that rebuild_index() recreates it
+        // from the data log instead of relying on the already-correct index.
+        REQUIRE(std::filesystem::remove(file.idx_path()));
+        database.rebuild_index();
+
+        CHECK(database.get("a") == "new");
+        CHECK_FALSE(database.get("b").has_value());
+        CHECK_FALSE(has_index_staging_directory(file.idx_path()));
+    }
+
+    const zidanedb::Database reopened{file.path(), 4};
+    CHECK(reopened.get("a") == "new");
+    CHECK_FALSE(reopened.get("b").has_value());
+}
+
+TEST_CASE("a rebuilt index remains usable for reads and writes",
+          "[database][recovery][index-rebuild][regression]") {
+    TemporaryDatabaseFile file{"rebuilt-index-remains-usable.zdb"};
+
+    {
+        zidanedb::Database database{file.path(), 4};
+        database.put("before", "rebuild");
+
+        // This also exercises replacing an existing index file.
+        database.rebuild_index();
+
+        CHECK(database.get("before") == "rebuild");
+        database.put("after", "replacement");
+        CHECK(database.get("after") == "replacement");
+        CHECK_FALSE(has_index_staging_directory(file.idx_path()));
+    }
+
+    const zidanedb::Database reopened{file.path(), 4};
+    CHECK(reopened.get("before") == "rebuild");
+    CHECK(reopened.get("after") == "replacement");
+}
+
+TEST_CASE("a failed index rebuild preserves the existing index and removes staging files",
+          "[database][recovery][index-rebuild][checksum][regression]") {
+    TemporaryDatabaseFile file{"failed-index-rebuild-preserves-index.zdb"};
+    zidanedb::Database database{file.path(), 4};
+    database.put("first", "valid");
+    database.put("second", "will be corrupted");
+
+    const auto original_index = read_file_bytes(file.idx_path());
+    REQUIRE_FALSE(has_index_staging_directory(file.idx_path()));
+
+    corrupt_last_byte(file.path());
+    REQUIRE(database.scan_records().status == zidanedb::ScanStatus::ChecksumMismatch);
+    REQUIRE_THROWS_AS(database.rebuild_index(), std::runtime_error);
+
+    CHECK(read_file_bytes(file.idx_path()) == original_index);
+    CHECK_FALSE(has_index_staging_directory(file.idx_path()));
+}
+
+TEST_CASE("rebuilding databases with identical filenames does not share temporary indexes",
+          "[database][recovery][index-rebuild][filenames][regression]") {
+    constexpr auto common_filename = "rebuild-identical-filename.zdb";
+    TemporaryDirectory first_directory{"zidanedb-rebuild-first-directory"};
+    TemporaryDirectory second_directory{"zidanedb-rebuild-second-directory"};
+
+    const auto first_path = first_directory.path() / common_filename;
+    const auto second_path = second_directory.path() / common_filename;
+
+    // This is where the previous temp_directory_path()/filename approach
+    // looked for its temporary index. A proper adjacent staging path ignores it.
+    TemporaryDatabaseFile legacy_temporary_file{common_filename};
+    {
+        std::ofstream stale{legacy_temporary_file.idx_path(), std::ios::binary};
+        REQUIRE(stale.is_open());
+        stale << "stale temporary index";
+    }
+    const auto stale_contents = read_file_bytes(legacy_temporary_file.idx_path());
+
+    zidanedb::Database first{first_path, 4};
+    zidanedb::Database second{second_path, 4};
+    first.put("shared", "first database");
+    second.put("shared", "second database");
+
+    first.rebuild_index();
+    second.rebuild_index();
+
+    CHECK(first.get("shared") == "first database");
+    CHECK(second.get("shared") == "second database");
+    CHECK(read_file_bytes(legacy_temporary_file.idx_path()) == stale_contents);
+    CHECK_FALSE(has_index_staging_directory(first_path.string() + ".idx"));
+    CHECK_FALSE(has_index_staging_directory(second_path.string() + ".idx"));
+}
+
+TEST_CASE("a header-only database rebuilds to an empty index",
+          "[database][recovery][index-rebuild][empty][regression]") {
+    TemporaryDatabaseFile file{"rebuild-empty-index.zdb"};
+
+    {
+        zidanedb::Database database{file.path(), 4};
+        database.rebuild_index();
+
+        CHECK_FALSE(database.get("missing").has_value());
+        const auto stats = database.get_index_stats();
+        CHECK(stats.num_buckets == 4);
+        CHECK(stats.non_empty_buckets == 0);
+        CHECK_FALSE(has_index_staging_directory(file.idx_path()));
+    }
+
+    const zidanedb::Database reopened{file.path(), 4};
+    CHECK_FALSE(reopened.get("missing").has_value());
+    CHECK(reopened.get_index_stats().non_empty_buckets == 0);
 }

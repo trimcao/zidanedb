@@ -11,17 +11,54 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <random>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 
-namespace zidanedb {
+namespace {
 
-struct RecordScanResult {
-    RecordReadStatus status;
-    std::uint64_t last_valid_offset;
-    std::uint64_t failing_record_offset;
+struct TemporaryIndexLocation {
+    std::filesystem::path directory;
+    std::filesystem::path index_path;
 };
+
+TemporaryIndexLocation
+make_temporary_index_location(const std::filesystem::path& final_index_path) {
+    namespace fs = std::filesystem;
+
+    auto parent = final_index_path.parent_path();
+    if (parent.empty()) {
+        parent = ".";
+    }
+
+    const auto filename = final_index_path.filename().string();
+    std::random_device random;
+
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        const auto token = std::to_string(random()) + "-" + std::to_string(random());
+        const auto directory = parent / ("." + filename + ".rebuild-" + token);
+
+        std::error_code error;
+        if (fs::create_directory(directory, error)) {
+            return TemporaryIndexLocation{directory, directory / final_index_path.filename()};
+        }
+
+        // An existing name is only a collision, so try another candidate.
+        if (!error || error == std::errc::file_exists) {
+            continue;
+        }
+
+        throw fs::filesystem_error{"Could not create index staging directory", directory, error};
+    }
+
+    throw std::runtime_error{"Could not generate a unique temporary index path"};
+}
+
+} // namespace
+
+namespace zidanedb {
 
 Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
     : db_path_{std::move(path)}, idx_path_{db_path_} {
@@ -48,6 +85,11 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
         load();
     } else {
         setup();
+    }
+
+    // scan db logs
+    if (scan_records().status != ScanStatus::Success) {
+        throw std::runtime_error("db file is corrupted");
     }
 }
 
@@ -168,8 +210,6 @@ void Database::load() {
         (version_ != DB_VERSION)) {
         throw std::runtime_error("Unsupported ZidaneDB Database version");
     }
-
-    scan_records();
 }
 
 void Database::setup() {
@@ -200,7 +240,7 @@ std::uint64_t Database::header_size() const {
     return utils::string_size(magic_) + sizeof(version_);
 }
 
-RecordScanResult Database::scan_records(std::uint64_t start_offset) {
+ScanResult Database::scan_records(std::uint64_t start_offset) {
     std::ifstream file{db_path_, std::ios::binary};
     if (!file) {
         throw std::runtime_error("Could not open the file");
@@ -220,39 +260,131 @@ RecordScanResult Database::scan_records(std::uint64_t start_offset) {
     }
 
     // start reading records
-    // for now: rebuild the index
     Record record{};
-    RecordReadStatus status{};
+    RecordReadStatus read_status{};
     auto record_start = start_offset;
     auto record_end = file.tellg();
-    std::uint64_t last_valid_offset = 0;
+    std::uint64_t last_valid_record_offset = 0;
     std::uint64_t failing_record_offset = 0;
-    while ((status = read_record(file, record)) == RecordReadStatus::Success) {
-        last_valid_offset = record_start;
+    while ((read_status = read_record(file, record)) == RecordReadStatus::Success) {
+        last_valid_record_offset = record_start;
         record_end = file.tellg();
-        // TODO: rebuild index here?
         record_start = record_end;
     }
-    if (status != RecordReadStatus::EndOfFile) {
+
+    ScanStatus scan_status;
+    switch (read_status) {
+    case RecordReadStatus::ChecksumMismatch:
+        scan_status = ScanStatus::ChecksumMismatch;
         failing_record_offset = record_start;
-
-        std::cout << "db file has some problem, error code: " << static_cast<std::uint8_t>(status)
-                  << '\n';
-
-        // std::cout << "truncating the file...\n";
-
-        // // Close the stream before resizing
-        // file.close();
-
-        // // Truncate the file at the recorded position
-        // std::filesystem::resize_file(db_path_, record_end);
-    } else {
-        std::cout << "db file is healthy\n";
+        break;
+    case RecordReadStatus::InvalidLength:
+        scan_status = ScanStatus::InvalidLength;
+        failing_record_offset = record_start;
+        break;
+    case RecordReadStatus::InvalidType:
+        scan_status = ScanStatus::InvalidType;
+        failing_record_offset = record_start;
+        break;
+    case RecordReadStatus::Truncated:
+        scan_status = ScanStatus::Truncated;
+        failing_record_offset = record_start;
+        break;
+    case RecordReadStatus::EndOfFile:
+    case RecordReadStatus::Success:
+        scan_status = ScanStatus::Success;
+        break;
     }
 
-    return RecordScanResult{status, last_valid_offset, failing_record_offset};
+    return ScanResult{scan_status, last_valid_record_offset, failing_record_offset};
 }
 
-void Database::recover_records() {}
+void Database::recover_records(ScanResult scan_result) {
+    /*
+    TODO:
+    Eventually, the explicit recovery operation should orchestrate the full sequence:
+    scan again
+    → validate selected policy
+    → back up if desired
+    → truncate
+    → rebuild temporary index
+    → install index
+    → rescan and verify
+    */
+
+    switch (scan_result.status) {
+    case ScanStatus::Success:
+        std::cout << "db file is healthy\n";
+        break;
+    case ScanStatus::Truncated:
+        std::cout << "truncating...\n";
+        std::filesystem::resize_file(db_path_, scan_result.failing_record_offset);
+        break;
+    default:
+        throw std::runtime_error("db file is corrupted");
+    }
+}
+
+void Database::rebuild_index(std::uint64_t start_offset) {
+    std::ifstream file{db_path_, std::ios::binary};
+    if (!file) {
+        throw std::runtime_error("Could not open the file");
+    }
+
+    // set exception so underlying failures throw automatically
+    file.exceptions(std::ios::badbit);
+
+    if (start_offset == 0) {
+        start_offset = header_size();
+    }
+
+    file.seekg(start_offset, std::ios::beg);
+    if (!file) {
+        throw std::runtime_error("Seek failed");
+    }
+
+    const auto bucket_count = index_->num_buckets();
+    const auto temporary = make_temporary_index_location(idx_path_);
+
+    try {
+        {
+            Index temporary_index{temporary.index_path, bucket_count};
+
+            Record record{};
+            RecordReadStatus read_status{};
+            auto record_start = start_offset;
+            auto record_end = file.tellg();
+            while ((read_status = read_record(file, record)) == RecordReadStatus::Success) {
+                record_end = file.tellg();
+
+                switch (record.type) {
+                case RecordType::Put:
+                    temporary_index.set(record.key, record_start);
+                    break;
+                case RecordType::Delete:
+                    static_cast<void>(temporary_index.erase(record.key));
+                    break;
+                }
+
+                record_start = record_end;
+            }
+
+            if (read_status != RecordReadStatus::EndOfFile) {
+                throw std::runtime_error("db file is corrupted, cannot rebuild index");
+            }
+        }
+
+        // Install the completed index, then create an owner for the final path.
+        std::filesystem::rename(temporary.index_path, idx_path_);
+        index_ = std::make_unique<Index>(idx_path_, bucket_count);
+
+        std::error_code cleanup_error;
+        std::filesystem::remove(temporary.directory, cleanup_error);
+    } catch (...) {
+        std::error_code cleanup_error;
+        std::filesystem::remove_all(temporary.directory, cleanup_error);
+        throw;
+    }
+}
 
 } // namespace zidanedb

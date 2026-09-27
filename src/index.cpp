@@ -401,4 +401,6 @@ bool Index::empty() const {
     return true;
 }
 
+std::uint64_t Index::num_buckets() const { return num_buckets_; }
+
 } // namespace zidanedb

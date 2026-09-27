@@ -11,8 +11,13 @@
 
 namespace zidanedb {
 
-// forward declare RecordScanResult to keep "record.h" private
-struct RecordScanResult;
+enum class ScanStatus { Success, Truncated, InvalidLength, ChecksumMismatch, InvalidType };
+
+struct ScanResult {
+    ScanStatus status;
+    std::uint64_t last_valid_record_offset;
+    std::uint64_t failing_record_offset;
+};
 
 class Index;
 
@@ -28,11 +33,6 @@ class Database {
     void load();
     void setup();
 
-    // scan all the data records, and find the longest valid prefix,
-    // rebuild the index (from the last_applied_offset),
-    // truncate incomplete tail if found.
-    RecordScanResult scan_records(std::uint64_t start_offset = 0);
-    void recover_records();
     std::uint64_t header_size() const;
 
   public:
@@ -50,6 +50,11 @@ class Database {
     bool erase(const std::string& key);
 
     IndexStats get_index_stats() const;
+
+    // scan all the data records, and find the longest valid prefix,
+    ScanResult scan_records(std::uint64_t start_offset = 0);
+    void recover_records(ScanResult scan_result);
+    void rebuild_index(std::uint64_t start_offset = 0);
 };
 
 } // namespace zidanedb

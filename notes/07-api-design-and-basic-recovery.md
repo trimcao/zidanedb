@@ -100,6 +100,7 @@ ignore or truncate the incomplete tail.
 ### Rebuild the index entirely from the data log
 Can reconstruct the hash index from the data log.
 Question: Do I need to replay all of the `PUT` and `DELETE` to reconstruct?
+Answer: probably not, see the next section.
 
 ### Idea of checkpoint
 We don't need to rebuild the persistent index file from scratch.
@@ -711,3 +712,158 @@ That would expose all implementation headers to library consumers and conceal
 the underlying public/private boundary problem. For the current design,
 keeping `record.h` private and defining the scan-result type in `database.cpp`
 is the cleaner choice.
+
+## Appendix: `std::unique_ptr` Ownership and Stack Objects
+
+A `std::unique_ptr<T>` represents exclusive ownership of a dynamically owned
+`T`. Its central promise is:
+
+```text
+I own this object, so I am responsible for deleting it.
+```
+
+This is why a pointer to a local stack object must not be passed to
+`std::unique_ptr::reset()`:
+
+```cpp
+void rebuild_index() {
+    Index temporary_index{temporary_path, bucket_count};
+
+    // Wrong: temporary_index is a stack object.
+    index_.reset(&temporary_index);
+}
+```
+
+`temporary_index` has automatic storage duration. C++ destroys it
+automatically when `rebuild_index()` returns. Calling `reset()` with its
+address tells `index_` to take ownership of the same object and eventually
+evaluate an operation equivalent to:
+
+```cpp
+delete pointer;
+```
+
+The resulting sequence is invalid:
+
+1. `temporary_index` is destroyed automatically at the end of the function.
+2. `index_` is left pointing to an object that no longer exists.
+3. A later use of `index_` accesses a dangling pointer.
+4. When `index_` is destroyed or reset, it tries to `delete` the stack address.
+
+The dangling access and invalid deletion are undefined behavior. Possible
+symptoms include an invalid-free error, a crash, corrupted memory, or code that
+appears to work until an unrelated change exposes the bug.
+
+The same ownership error occurs here:
+
+```cpp
+std::unique_ptr<Index> pointer{&temporary_index}; // Also wrong.
+```
+
+Calling `release()` later is not a proper repair. It may prevent the invalid
+`delete`, but the pointer still becomes dangling when the local object is
+destroyed.
+
+### Correct Ownership Transfer for a Rebuilt Index
+
+After the temporary index file has been completely built, validated, and moved
+to its final path, construct a new heap-owned `Index` for that final path:
+
+```cpp
+const auto bucket_count = index_->num_buckets();
+
+{
+    Index temporary_index{temporary_path, bucket_count};
+    // Replay valid records into temporary_index.
+    // Verify that scanning ended at clean EOF.
+}
+
+// Safely install the temporary file at idx_path_ first.
+
+index_ = std::make_unique<Index>(idx_path_, bucket_count);
+```
+
+`std::make_unique` dynamically creates the new object and returns a
+`std::unique_ptr` that genuinely owns it. Assigning it to `index_` first
+destroys the previously owned `Index`, then stores the newly owned one.
+
+Constructing the replacement from `idx_path_` is important. Even if moving
+`temporary_index` into a heap allocation were possible, that object would
+still remember `temporary_path`, which no longer names the file after it has
+been moved into place.
+
+### Owning and Non-Owning Relationships
+
+Use the type that matches the intended relationship:
+
+```text
+std::unique_ptr<T>  exclusive ownership; deletes the object
+std::shared_ptr<T>  shared ownership; last owner deletes the object
+T*                  non-owning access; may be null
+T&                  non-owning access; must refer to an object
+T                   local value; destroyed automatically at scope exit
+```
+
+A useful rule is: only give a raw pointer to `unique_ptr::reset()` when that
+pointer came from a compatible `new` expression and ownership is deliberately
+being transferred. In ordinary modern C++, prefer `std::make_unique` instead
+of writing either `new` or `reset(raw_pointer)` directly.
+
+### How Assignment Cleans Up the Old `Index`
+
+The old `Index` is cleaned up automatically by this assignment:
+
+```cpp
+index_ = std::make_unique<Index>(idx_path_, bucket_count);
+```
+
+Conceptually, the operation proceeds in this order:
+
+1. `std::make_unique` creates a new `Index` on the heap.
+2. The new `Index` constructor finishes successfully.
+3. The move-assignment of `index_` deletes the old `Index` that `index_`
+   currently owns.
+4. `index_` takes exclusive ownership of the new `Index`.
+
+The default deleter used by `std::unique_ptr<Index>` performs an operation
+equivalent to `delete` on its owned pointer. That invokes the old `Index`
+destructor. ZidaneDB does not declare a custom `Index` destructor, so C++
+generates one that destroys every member automatically. For example,
+`std::filesystem::path` and `std::string` members release their own allocated
+memory.
+
+If `Index` held a file stream as a member, destroying the `Index` would also
+destroy that stream and close it. In the current implementation, index methods
+open streams as local variables, so those streams are already closed when the
+methods return.
+
+Destroying an in-memory `Index` object does **not** remove its index file:
+
+```text
+unique_ptr destruction
+    -> deletes the in-memory Index object
+
+std::filesystem::remove() or rename()
+    -> changes files on disk
+```
+
+Filesystem installation and staging-directory cleanup therefore remain
+separate responsibilities.
+
+There is no need to clear the pointer before assigning the replacement:
+
+```cpp
+// Unnecessary and less safe:
+index_.reset();
+index_ = std::make_unique<Index>(idx_path_, bucket_count);
+```
+
+Direct assignment provides better exception safety. The right-hand side is
+constructed before the assignment replaces the old pointer. If the new
+`Index` constructor throws, assignment never occurs and `index_` continues to
+own the old object. Calling `reset()` first would instead leave `index_` empty
+if construction failed.
+
+Finally, when a `Database` is destroyed, its members are destroyed
+automatically. Destroying its `index_` member deletes whichever `Index` it owns
+at that time. No manual `delete` is required.

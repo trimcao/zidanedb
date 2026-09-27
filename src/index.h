@@ -47,6 +47,8 @@ class Index {
     IndexStats stats() const;
     bool empty() const;
 
+    std::uint64_t num_buckets() const;
+
   private:
     std::filesystem::path path_;
 
