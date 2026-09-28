@@ -162,6 +162,70 @@ with testing, and also allows users to choose how they want to recover the db fi
 - For checksum mismatch error, we should report corruption, and leave the file
 unchanged.
 
+## Recover v1 Design
+Basic architecture:
+```
+foo.zdb
+    authoritative append-only history
+    checksummed records
+    enough information to reconstruct logical state
+
+foo.zidx
+    persistent hash index
+    key -> latest DB offset
+    makes normal startup/GET fast
+    can always be deleted and rebuilt
+```
+
+Normal startup
+- Open zdb file
+- Open index file
+- Validate index metadata
+- Index is known-good and matches DB
+- READY!
+
+Recovery should be exceptional
+- Add some more metadata in the index header
+    - indexed_up_to_offset
+    - clean_shutdown
+- `indexed_up_to_offset` means this index is known to correctly represent
+`.zdb` through this byte offset.
+- If the `.zdb` file size and `indexed_up_to_offset` do not agree,
+we need to trigger recovery.
+- Same for `clean_shutdown`. Trigger recovery if needed.
+
+Recovery v1 procedure:
+- Scan `.zdb`records sequentially, verify checksum.
+- Find last valid record.
+- Truncate incomplete/corrupt tail if appropriate.
+- Build brand-new index file, and replace the old index file.
+
+Who triggers recovery:
+- Database constructor will trigger recovery as needed.
+- The user then get either `usable recovered database` or
+`explicit unrecoverable error`.
+- I think for now this is reasonable.
+- CLI tools could be done later.
+
+Checkpoint idea:
+- If the process dies halfway through modifying the hash index,
+the index structure itself might be damaged. We probably cannot
+assume the existing index is structurally trustworthy.
+- For Recovery V1, we don't need checkpoint yet. The main reason
+is we assume that recovery will only be done as an exception,
+so rebuilding the whole index is ok.
+
+Mismatched checksum:
+- When we see a mismatched checksum, it means we cannot trust that
+record, especially the length fields in that record. So we should
+stop scanning the db logs.
+- Basically, we should not do automatic recovery for the mismatched
+checksum. In this case, just throw an exception.
+
+Bottom line: opening a database should either give users a usable
+database, or throw an exception in case of unrecoverable errors.
+
+
 
 ## Appendix: Vendoring CRC32C for Offline Builds
 
