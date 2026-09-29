@@ -48,6 +48,10 @@ class Index {
     bool empty() const;
 
     std::uint64_t num_buckets() const;
+    std::uint64_t indexed_up_to_offset() const;
+    void set_indexed_up_to_offset(std::uint64_t offset) const;
+    bool index_clean() const;
+    void set_index_clean(bool val) const;
 
   private:
     std::filesystem::path path_;
@@ -55,6 +59,8 @@ class Index {
     std::string magic_;
     std::uint32_t version_;
     std::uint64_t num_buckets_;
+    std::uint64_t indexed_up_to_offset_;
+    std::uint8_t index_clean_;
 
     void load();
     void setup();

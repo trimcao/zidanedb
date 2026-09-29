@@ -139,7 +139,7 @@ magic
 version
 bucket_count
 last_applied_log_offset
-clean_shutdown
+index_clean
 ```
 
 ### Use checksums and distinguish truncation from corruption
@@ -187,12 +187,12 @@ Normal startup
 Recovery should be exceptional
 - Add some more metadata in the index header
     - indexed_up_to_offset
-    - clean_shutdown
+    - index_clean
 - `indexed_up_to_offset` means this index is known to correctly represent
 `.zdb` through this byte offset.
 - If the `.zdb` file size and `indexed_up_to_offset` do not agree,
 we need to trigger recovery.
-- Same for `clean_shutdown`. Trigger recovery if needed.
+- Same for `index_clean`. Trigger recovery if needed.
 
 Recovery v1 procedure:
 - Scan `.zdb`records sequentially, verify checksum.

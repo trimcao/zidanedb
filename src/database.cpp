@@ -87,13 +87,20 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
         setup();
     }
 
-    // scan db logs
-    if (scan_records().status != ScanStatus::Success) {
-        throw std::runtime_error("db file is corrupted");
+    if (!index_metadata_clean()) {
+        // basic recovery policy:
+        if (scan_records().status != ScanStatus::Success) {
+            throw std::runtime_error("db file is corrupted");
+        }
     }
+
+    // set index_clean to false before working with the database
+    index_->set_index_clean(false);
 }
 
-Database::~Database() = default;
+Database::~Database() { close(); }
+
+void Database::close() { index_->set_index_clean(true); }
 
 std::optional<std::string> Database::get(const std::string& key) const {
     Record record{};
@@ -137,20 +144,27 @@ void Database::put(const std::string& key, const std::string& val) {
 
     Record record{RecordType::Put, key, val};
     std::ofstream file;
-    std::uint64_t db_offset;
+    std::uint64_t db_start_offset;
+    std::uint64_t db_end_offset;
 
     try {
         file.open(db_path_, std::ios::binary | std::ios::app);
         file.exceptions(std::ios::failbit | std::ios::badbit);
 
         // get the offset of this record
-        const auto position = file.tellp();
-        if (position == std::ostream::pos_type(-1)) {
+        const auto start_position = file.tellp();
+        if (start_position == std::ostream::pos_type(-1)) {
             throw std::runtime_error{"tellp() failed"};
         }
-        db_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(position));
+        db_start_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(start_position));
 
         write_record(file, record);
+        const auto end_position = file.tellp();
+        if (end_position == std::ostream::pos_type(-1)) {
+            throw std::runtime_error{"tellp() failed"};
+        }
+        db_end_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(end_position)) - 1;
+
         file.flush();
     } catch (const std::ios_base::failure& error) {
         throw std::runtime_error{"Could not write database file: " + db_path_.string()};
@@ -158,7 +172,8 @@ void Database::put(const std::string& key, const std::string& val) {
 
     // Last write wins: update the index only after flushing the record.
     // If this update fails, the appended record may remain unindexed.
-    index_->set(key, db_offset);
+    index_->set(key, db_start_offset);
+    index_->set_indexed_up_to_offset(db_end_offset);
 }
 
 bool Database::erase(const std::string& key) {
@@ -166,6 +181,7 @@ bool Database::erase(const std::string& key) {
 
     Record record{RecordType::Delete, key, ""};
     std::ofstream file;
+    std::uint64_t db_end_offset;
 
     if (exist) {
         try {
@@ -174,6 +190,13 @@ bool Database::erase(const std::string& key) {
 
             // Deletion records retain the key and serialize an empty value.
             write_record(file, record);
+            const auto end_position = file.tellp();
+            if (end_position == std::ostream::pos_type(-1)) {
+                throw std::runtime_error{"tellp() failed"};
+            }
+            db_end_offset =
+                static_cast<std::uint64_t>(static_cast<std::streamoff>(end_position)) - 1;
+
             file.flush();
 
         } catch (const std::ios_base::failure& error) {
@@ -185,6 +208,7 @@ bool Database::erase(const std::string& key) {
         if (!index_->erase(key)) {
             throw std::runtime_error("Key " + key + " exists in db file but not in index file");
         }
+        index_->set_indexed_up_to_offset(db_end_offset);
     }
 
     return exist.has_value();
@@ -300,21 +324,11 @@ ScanResult Database::scan_records(std::uint64_t start_offset) {
 }
 
 void Database::recover_records(ScanResult scan_result) {
-    /*
-    TODO:
-    Eventually, the explicit recovery operation should orchestrate the full sequence:
-    scan again
-    → validate selected policy
-    → back up if desired
-    → truncate
-    → rebuild temporary index
-    → install index
-    → rescan and verify
-    */
-
+    // TODO: backup db file?
+    // TODO: rescan and verify?
     switch (scan_result.status) {
     case ScanStatus::Success:
-        std::cout << "db file is healthy\n";
+        // std::cout << "db file is healthy\n";
         break;
     case ScanStatus::Truncated:
         std::cout << "truncating...\n";
@@ -323,6 +337,8 @@ void Database::recover_records(ScanResult scan_result) {
     default:
         throw std::runtime_error("db file is corrupted");
     }
+
+    rebuild_index();
 }
 
 void Database::rebuild_index(std::uint64_t start_offset) {
@@ -385,6 +401,14 @@ void Database::rebuild_index(std::uint64_t start_offset) {
         std::filesystem::remove_all(temporary.directory, cleanup_error);
         throw;
     }
+
+    // set indexed_up_to_offset
+    index_->set_indexed_up_to_offset(std::filesystem::file_size(db_path_));
+}
+
+bool Database::index_metadata_clean() {
+    return index_->index_clean() &&
+           std::filesystem::file_size(db_path_) == index_->indexed_up_to_offset();
 }
 
 } // namespace zidanedb

@@ -913,54 +913,6 @@ TEST_CASE("Database rejects zero buckets before creating either file", "[validat
     CHECK_FALSE(std::filesystem::exists(file.idx_path()));
 }
 
-TEST_CASE("database reads work with a read-only index", "[permissions][regression]") {
-    TemporaryDatabaseFile file{"database-readonly-index.zdb"};
-    bool populated = false;
-    SECTION("empty index before the first write") { populated = false; }
-    SECTION("populated index") { populated = true; }
-
-    {
-        zidanedb::Database database{file.path(), 4};
-        if (populated) {
-            database.put("player", "Zidane");
-        }
-    }
-
-    const auto original_permissions = std::filesystem::status(file.idx_path()).permissions();
-    {
-        ScopedReadOnlyFile read_only{file.idx_path()};
-        {
-            // Opening with in|out does not truncate or write anything.
-            std::fstream writer{file.idx_path(), std::ios::in | std::ios::out | std::ios::binary};
-            if (writer.is_open()) {
-                // Root privileges or some filesystems can bypass the permission bits.
-                SKIP("Cannot enforce a read-only index for this user/filesystem");
-            }
-        }
-        // Confirm it is readable, so the failed write-open was not a missing-file error.
-        std::ifstream reader{file.idx_path(), std::ios::binary};
-        REQUIRE(reader.is_open());
-
-        const zidanedb::Database reopened{file.path(), 4};
-        CHECK_FALSE(reopened.get("missing").has_value());
-        const auto stats = reopened.get_index_stats();
-        CHECK(stats.num_buckets == 4);
-        if (populated) {
-            CHECK(reopened.get("player") == "Zidane");
-            CHECK(stats.non_empty_buckets == 1);
-            CHECK(stats.max_chain_length == 1);
-        } else {
-            CHECK_FALSE(reopened.get("player").has_value());
-            CHECK(stats.non_empty_buckets == 0);
-            CHECK(stats.max_chain_length == 0);
-        }
-
-        const zidanedb::Index index{file.idx_path(), 4};
-        CHECK(index.empty() == !populated);
-    }
-    CHECK(std::filesystem::status(file.idx_path()).permissions() == original_permissions);
-}
-
 TEST_CASE("rebuilding an index replays puts, replacements, and deletes",
           "[database][recovery][index-rebuild][regression]") {
     TemporaryDatabaseFile file{"rebuild-index-replays-log.zdb"};

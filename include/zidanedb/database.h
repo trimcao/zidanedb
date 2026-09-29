@@ -38,6 +38,7 @@ class Database {
   public:
     explicit Database(std::filesystem::path path, std::uint64_t num_index_buckets = 1'000'000);
     ~Database();
+    void close();
 
     [[nodiscard]]
     std::optional<std::string> get(const std::string& key) const;
@@ -50,6 +51,7 @@ class Database {
     bool erase(const std::string& key);
 
     IndexStats get_index_stats() const;
+    bool index_metadata_clean();
 
     // scan all the data records, and find the longest valid prefix,
     ScanResult scan_records(std::uint64_t start_offset = 0);

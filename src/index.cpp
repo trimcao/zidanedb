@@ -15,7 +15,10 @@ namespace zidanedb {
 
 /*
 Persistent hash index layout:
-Header: [magic_length:u32][magic_bytes][version:u32][num_buckets:u64]
+Header:
+[magic_length:u32][magic_bytes][version:u32][num_buckets:u64]
+[indexed_up_to_offset:u64][index_clean:u32]
+
 Buckets: [head_offset:u64] repeated num_buckets times
 Entry: [db_offset:u64][next_entry:u64][key_length:u32][key_bytes]
 
@@ -76,6 +79,7 @@ Index::Index(std::filesystem::path path, std::uint64_t num_buckets) {
 
     path_ = std::move(path);
     num_buckets_ = num_buckets;
+
     if (std::filesystem::exists(path_)) {
         load();
     } else {
@@ -238,6 +242,12 @@ void Index::load() {
         (num_buckets_ == 0)) {
         throw std::runtime_error("Invalid ZidaneDB Index number of buckets");
     }
+    if (utils::read_uint64(file, indexed_up_to_offset_) != utils::ReadStatus::Success) {
+        throw std::runtime_error("Invalid ZidaneDB Index indexed_up_to_offset");
+    }
+    if (utils::read_uint8(file, index_clean_) != utils::ReadStatus::Success) {
+        throw std::runtime_error("Invalid ZidaneDB Index clean shutdown flag");
+    }
 
     // The declared bucket table must fit after the header.
     if (num_buckets_ >
@@ -265,6 +275,12 @@ void Index::setup() {
         utils::write_uint32(file, version_);
         utils::write_uint64(file, num_buckets_);
 
+        // initialize indexed_up_to_offset_ and index_clean_
+        indexed_up_to_offset_ = 0;
+        index_clean_ = 0;
+        utils::write_uint64(file, indexed_up_to_offset_);
+        utils::write_uint8(file, index_clean_);
+
         // Zero bucket heads represent empty chains.
         std::uint64_t empty = 0;
         for (std::uint64_t i = 0; i < num_buckets_; ++i) {
@@ -278,8 +294,9 @@ void Index::setup() {
 }
 
 std::uint64_t Index::header_size() const {
-    // magic + version + bucket_count
-    return utils::string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t);
+    // magic + version + bucket_count + indexed_up_to_offset + index_clean
+    return utils::string_size(magic_) + sizeof(std::uint32_t) + sizeof(std::uint64_t) +
+           sizeof(std::uint64_t) + sizeof(std::uint8_t);
 }
 
 IndexStats Index::stats() const {
@@ -402,5 +419,49 @@ bool Index::empty() const {
 }
 
 std::uint64_t Index::num_buckets() const { return num_buckets_; }
+std::uint64_t Index::indexed_up_to_offset() const { return indexed_up_to_offset_; }
+bool Index::index_clean() const { return index_clean_ == 1; }
+
+void Index::set_index_clean(bool val) const {
+    std::fstream file{path_, std::ios::in | std::ios::out | std::ios::binary};
+    if (!file) {
+        throw std::runtime_error{"Could not open index file: " + path_.string()};
+    }
+
+    try {
+        file.exceptions(std::ios::failbit | std::ios::badbit);
+        std::uint64_t offset = header_size() - sizeof(std::uint8_t);
+        file.seekp(offset);
+        if (!file) {
+            throw std::runtime_error{"seek failed"};
+        }
+        utils::write_uint8(file, val);
+        file.flush();
+
+    } catch (const std::ios_base::failure& error) {
+        throw std::runtime_error{"Could not update index file: " + path_.string()};
+    }
+}
+
+void Index::set_indexed_up_to_offset(std::uint64_t db_offset) const {
+    std::fstream file{path_, std::ios::in | std::ios::out | std::ios::binary};
+    if (!file) {
+        throw std::runtime_error{"Could not open index file: " + path_.string()};
+    }
+
+    try {
+        file.exceptions(std::ios::failbit | std::ios::badbit);
+        std::uint64_t offset = header_size() - sizeof(std::uint8_t) - sizeof(std::uint64_t);
+        file.seekp(offset);
+        if (!file) {
+            throw std::runtime_error{"seek failed"};
+        }
+        utils::write_uint64(file, db_offset);
+        file.flush();
+
+    } catch (const std::ios_base::failure& error) {
+        throw std::runtime_error{"Could not update index file: " + path_.string()};
+    }
+}
 
 } // namespace zidanedb
