@@ -69,28 +69,43 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
     }
 
     idx_path_ += ".idx";
-    // check if the db file exists but the index file does not
-    if (std::filesystem::exists(db_path_) && !std::filesystem::exists(idx_path_)) {
-        throw std::runtime_error("DB file exists but Index file does not exist");
-    }
+    const bool database_exists = std::filesystem::exists(db_path_);
+    const bool index_exists = std::filesystem::exists(idx_path_);
 
-    index_ = std::make_unique<Index>(idx_path_, num_index_buckets);
-    // check if the db file does not exist but the index file has contents
-    if (!std::filesystem::exists(db_path_) && !index_->empty()) {
-        throw std::runtime_error("DB file does not exist but Index file is not empty");
-    }
-
-    // load/setup the db file
-    if (std::filesystem::exists(db_path_)) {
-        load();
-    } else {
+    if (!database_exists) {
+        // With no data log there is nothing from which to rebuild a malformed
+        // or populated index, so those errors must be reported to the caller.
+        index_ = std::make_unique<Index>(idx_path_, num_index_buckets);
+        if (!index_->empty()) {
+            throw std::runtime_error("DB file does not exist but Index file is not empty");
+        }
         setup();
-    }
+        // initialize indexed_up_to_offset when creating a new db
+        index_->set_indexed_up_to_offset(std::filesystem::file_size(db_path_));
+    } else {
+        load();
 
-    if (!index_metadata_clean()) {
-        // basic recovery policy:
-        if (scan_records().status != ScanStatus::Success) {
-            throw std::runtime_error("db file is corrupted");
+        bool index_rebuilt = false;
+        if (index_exists) {
+            try {
+                index_ = std::make_unique<Index>(idx_path_, num_index_buckets);
+            } catch (const InvalidIndexError&) {
+                // A structurally invalid index is disposable: the data log is
+                // the source of truth and can produce a replacement.
+                rebuild_index_impl(0, num_index_buckets);
+                index_rebuilt = true;
+            }
+        } else {
+            rebuild_index_impl(0, num_index_buckets);
+            index_rebuilt = true;
+        }
+
+        if (!index_rebuilt && !index_metadata_clean()) {
+            // Basic recovery policy:
+            // - Trigger basic recovery when the Index metadata is not clean.
+            // - Check for incomplete tail in the db file, then truncate if required.
+            // - Rebuild index.
+            recover_records();
         }
     }
 
@@ -98,11 +113,37 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
     index_->set_index_clean(false);
 }
 
-Database::~Database() { close(); }
+Database::~Database() noexcept {
+    try {
+        close();
+    } catch (...) {
+        // Destructors cannot safely report an exception.
+        // The index should remain marked dirty, so the next
+        // open performs recovery.
+    }
+}
 
-void Database::close() { index_->set_index_clean(true); }
+void Database::close() {
+    if (closed_) {
+        return;
+    }
+
+    // Only declare the database clean if the index represents the complete
+    // data log.
+    if (std::filesystem::file_size(db_path_) != index_->indexed_up_to_offset()) {
+        throw std::runtime_error{"Cannot close database: index is not caught up"};
+    }
+
+    index_->set_index_clean(true);
+    // release the in-memory index object
+    index_.reset();
+
+    closed_ = true;
+}
 
 std::optional<std::string> Database::get(const std::string& key) const {
+    ensure_open();
+
     Record record{};
 
     // Index membership distinguishes a missing key from a stored empty value.
@@ -134,6 +175,8 @@ std::optional<std::string> Database::get(const std::string& key) const {
 }
 
 void Database::put(const std::string& key, const std::string& val) {
+    ensure_open();
+
     // Writes are append-only, even when replacing a value with the same contents.
     if (key.size() > MAX_KEY_SIZE) {
         throw std::runtime_error("Key size exceeds max allowed key size");
@@ -163,7 +206,7 @@ void Database::put(const std::string& key, const std::string& val) {
         if (end_position == std::ostream::pos_type(-1)) {
             throw std::runtime_error{"tellp() failed"};
         }
-        db_end_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(end_position)) - 1;
+        db_end_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(end_position));
 
         file.flush();
     } catch (const std::ios_base::failure& error) {
@@ -177,6 +220,8 @@ void Database::put(const std::string& key, const std::string& val) {
 }
 
 bool Database::erase(const std::string& key) {
+    ensure_open();
+
     auto exist = index_->find(key);
 
     Record record{RecordType::Delete, key, ""};
@@ -194,8 +239,7 @@ bool Database::erase(const std::string& key) {
             if (end_position == std::ostream::pos_type(-1)) {
                 throw std::runtime_error{"tellp() failed"};
             }
-            db_end_offset =
-                static_cast<std::uint64_t>(static_cast<std::streamoff>(end_position)) - 1;
+            db_end_offset = static_cast<std::uint64_t>(static_cast<std::streamoff>(end_position));
 
             file.flush();
 
@@ -214,7 +258,10 @@ bool Database::erase(const std::string& key) {
     return exist.has_value();
 }
 
-IndexStats Database::get_index_stats() const { return index_->stats(); }
+IndexStats Database::get_index_stats() const {
+    ensure_open();
+    return index_->stats();
+}
 
 void Database::load() {
     if (!std::filesystem::exists(db_path_)) {
@@ -265,6 +312,8 @@ std::uint64_t Database::header_size() const {
 }
 
 ScanResult Database::scan_records(std::uint64_t start_offset) {
+    ensure_open();
+
     std::ifstream file{db_path_, std::ios::binary};
     if (!file) {
         throw std::runtime_error("Could not open the file");
@@ -323,9 +372,13 @@ ScanResult Database::scan_records(std::uint64_t start_offset) {
     return ScanResult{scan_status, last_valid_record_offset, failing_record_offset};
 }
 
-void Database::recover_records(ScanResult scan_result) {
+void Database::recover_records() {
+    ensure_open();
+
     // TODO: backup db file?
-    // TODO: rescan and verify?
+
+    auto scan_result = scan_records();
+
     switch (scan_result.status) {
     case ScanStatus::Success:
         // std::cout << "db file is healthy\n";
@@ -338,10 +391,18 @@ void Database::recover_records(ScanResult scan_result) {
         throw std::runtime_error("db file is corrupted");
     }
 
+    // TODO: rescan and verify?
+
     rebuild_index();
 }
 
 void Database::rebuild_index(std::uint64_t start_offset) {
+    ensure_open();
+    rebuild_index_impl(start_offset, index_->num_buckets());
+}
+
+void Database::rebuild_index_impl(std::uint64_t start_offset, std::uint64_t bucket_count) {
+
     std::ifstream file{db_path_, std::ios::binary};
     if (!file) {
         throw std::runtime_error("Could not open the file");
@@ -359,7 +420,6 @@ void Database::rebuild_index(std::uint64_t start_offset) {
         throw std::runtime_error("Seek failed");
     }
 
-    const auto bucket_count = index_->num_buckets();
     const auto temporary = make_temporary_index_location(idx_path_);
 
     try {
@@ -406,9 +466,16 @@ void Database::rebuild_index(std::uint64_t start_offset) {
     index_->set_indexed_up_to_offset(std::filesystem::file_size(db_path_));
 }
 
-bool Database::index_metadata_clean() {
+bool Database::index_metadata_clean() const {
+    ensure_open();
     return index_->index_clean() &&
            std::filesystem::file_size(db_path_) == index_->indexed_up_to_offset();
+}
+
+void Database::ensure_open() const {
+    if (closed_ || !index_) {
+        throw std::logic_error("Database is closed");
+    }
 }
 
 } // namespace zidanedb

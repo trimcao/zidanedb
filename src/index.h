@@ -6,9 +6,17 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 namespace zidanedb {
+
+// Signals that an existing index has malformed or unsupported on-disk data.
+// The database may recover from this by rebuilding the index from its log.
+class InvalidIndexError : public std::runtime_error {
+  public:
+    using std::runtime_error::runtime_error;
+};
 
 struct EntryLocation {
     // Matching entry's offset, or zero if the key is absent.
@@ -49,9 +57,9 @@ class Index {
 
     std::uint64_t num_buckets() const;
     std::uint64_t indexed_up_to_offset() const;
-    void set_indexed_up_to_offset(std::uint64_t offset) const;
+    void set_indexed_up_to_offset(std::uint64_t offset);
     bool index_clean() const;
-    void set_index_clean(bool val) const;
+    void set_index_clean(bool val);
 
   private:
     std::filesystem::path path_;

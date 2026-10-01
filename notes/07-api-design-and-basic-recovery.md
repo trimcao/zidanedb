@@ -225,6 +225,33 @@ checksum. In this case, just throw an exception.
 Bottom line: opening a database should either give users a usable
 database, or throw an exception in case of unrecoverable errors.
 
+Closing the database:
+- Verify if the index has caught up to the db file. Otherwise, throw
+an exception and let recovery happens later.
+- Note that the destructor cannot let exceptions happen. In other words,
+the destructor must catch all exceptions.
+- `close()` must be called explicitly by applications that care whether
+shutdown completed successfully.
+
+Basic database opening/closing contract:
+```
+  open:
+      validate/recover
+      mark index dirty
+      allow operations
+
+  explicit close:
+      verify index checkpoint
+      mark index clean
+      release resources
+      may throw
+
+  destructor:
+      attempt close
+      catch every exception
+      never throw
+```
+
 
 
 ## Appendix: Vendoring CRC32C for Offline Builds

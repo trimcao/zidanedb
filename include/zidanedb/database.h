@@ -30,14 +30,19 @@ class Database {
     std::string magic_;
     std::uint32_t version_;
 
+    bool closed_{false};
+    void ensure_open() const;
+
     void load();
     void setup();
+    void rebuild_index_impl(std::uint64_t start_offset, std::uint64_t bucket_count);
 
     std::uint64_t header_size() const;
 
   public:
     explicit Database(std::filesystem::path path, std::uint64_t num_index_buckets = 1'000'000);
-    ~Database();
+    ~Database() noexcept;
+
     void close();
 
     [[nodiscard]]
@@ -51,11 +56,11 @@ class Database {
     bool erase(const std::string& key);
 
     IndexStats get_index_stats() const;
-    bool index_metadata_clean();
+    bool index_metadata_clean() const;
 
     // scan all the data records, and find the longest valid prefix,
     ScanResult scan_records(std::uint64_t start_offset = 0);
-    void recover_records(ScanResult scan_result);
+    void recover_records();
     void rebuild_index(std::uint64_t start_offset = 0);
 };
 

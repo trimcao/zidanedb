@@ -62,11 +62,11 @@ TEST_CASE("Index rejects a stored zero bucket count", "[index][validation][regre
 
     REQUIRE(std::filesystem::file_size(file.path()) == original_size);
     // The requested count is valid, so rejection must come from the stored header.
-    CHECK_THROWS_AS((zidanedb::Index{file.path(), 1}), std::runtime_error);
+    CHECK_THROWS_AS((zidanedb::Index{file.path(), 1}), zidanedb::InvalidIndexError);
     CHECK(std::filesystem::file_size(file.path()) == original_size);
 }
 
-TEST_CASE("Index rejects invalid magic and unsupported versions",
+TEST_CASE("Index classifies invalid header fields as invalid index data",
           "[index][validation][regression]") {
     TemporaryIndexFile file{"index-invalid-header-fields.zdb.idx"};
     {
@@ -78,6 +78,8 @@ TEST_CASE("Index rejects invalid magic and unsupported versions",
         std::fstream stream{file.path(), std::ios::in | std::ios::out | std::ios::binary};
         stream.exceptions(std::ios::failbit | std::ios::badbit);
         const auto version_offset = sizeof(std::uint32_t) + zidanedb::INDEX_MAGIC.size();
+        const auto clean_flag_offset =
+            version_offset + sizeof(std::uint32_t) + sizeof(std::uint64_t) + sizeof(std::uint64_t);
 
         SECTION("magic has the correct length but different contents") {
             // Preserve the length prefix and all other fields: corrupt one magic byte.
@@ -95,13 +97,35 @@ TEST_CASE("Index rejects invalid magic and unsupported versions",
             stream.seekp(static_cast<std::streamoff>(version_offset));
             zidanedb::utils::write_uint32(stream, zidanedb::INDEX_VERSION + 1);
         }
+        SECTION("clean flag is neither zero nor one") {
+            stream.seekp(static_cast<std::streamoff>(clean_flag_offset));
+            zidanedb::utils::write_uint8(stream, 2);
+        }
         stream.flush();
     }
 
     // This is invalid metadata, not a truncated-file test.
     REQUIRE(std::filesystem::file_size(file.path()) == original_size);
-    CHECK_THROWS_AS((zidanedb::Index{file.path(), 1}), std::runtime_error);
+    CHECK_THROWS_AS((zidanedb::Index{file.path(), 1}), zidanedb::InvalidIndexError);
     CHECK(std::filesystem::file_size(file.path()) == original_size);
+}
+
+TEST_CASE("Index metadata setters update both disk and cached values",
+          "[index][metadata][regression]") {
+    TemporaryIndexFile file{"index-metadata-setters.zdb.idx"};
+
+    zidanedb::Index index{file.path(), 1};
+    REQUIRE(index.indexed_up_to_offset() == 0);
+    REQUIRE_FALSE(index.index_clean());
+
+    index.set_indexed_up_to_offset(1234);
+    index.set_index_clean(true);
+    CHECK(index.indexed_up_to_offset() == 1234);
+    CHECK(index.index_clean());
+
+    const zidanedb::Index reopened{file.path(), 1};
+    CHECK(reopened.indexed_up_to_offset() == 1234);
+    CHECK(reopened.index_clean());
 }
 
 TEST_CASE("Index empty checks both early and late buckets", "[index][empty][regression]") {

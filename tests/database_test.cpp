@@ -827,8 +827,8 @@ TEST_CASE("different supported database filenames keep independent indexes",
     CHECK_FALSE(second_reopened.get("first-only").has_value());
 }
 
-TEST_CASE("an existing database with a missing index is rejected without replacing the index",
-          "[filenames][regression]") {
+TEST_CASE("an existing database with a missing index is rebuilt from the data log",
+          "[database][recovery][filenames][regression]") {
     TemporaryDatabaseFile file{"filename-missing-index.zdb"};
     {
         zidanedb::Database database{file.path(), 1};
@@ -838,10 +838,53 @@ TEST_CASE("an existing database with a missing index is rejected without replaci
     const auto database_size = std::filesystem::file_size(file.path());
     REQUIRE(std::filesystem::remove(file.idx_path()));
 
-    CHECK_THROWS_AS((zidanedb::Database{file.path(), 1}), std::runtime_error);
-    CHECK_FALSE(std::filesystem::exists(file.idx_path()));
-    REQUIRE(std::filesystem::exists(file.path()));
+    {
+        zidanedb::Database recovered{file.path(), 1};
+        CHECK(recovered.get("player") == "Zidane");
+        CHECK(std::filesystem::exists(file.idx_path()));
+        CHECK_FALSE(has_index_staging_directory(file.idx_path()));
+    }
+
     CHECK(std::filesystem::file_size(file.path()) == database_size);
+
+    const zidanedb::Database reopened{file.path(), 1};
+    CHECK(reopened.get("player") == "Zidane");
+}
+
+TEST_CASE("an invalid index is rebuilt from a valid data log",
+          "[database][recovery][invalid-index][regression]") {
+    TemporaryDatabaseFile file{"invalid-index-recovery.zdb"};
+    {
+        zidanedb::Database database{file.path(), 4};
+        database.put("player", "Zidane");
+        database.put("club", "Real Madrid");
+    }
+    const auto original_database = read_file_bytes(file.path());
+
+    {
+        // Keep the length prefix intact and corrupt the first magic byte. This
+        // makes the existing file structurally invalid without truncating it.
+        std::fstream stream{file.idx_path(), std::ios::in | std::ios::out | std::ios::binary};
+        REQUIRE(stream.is_open());
+        stream.seekp(static_cast<std::streamoff>(sizeof(std::uint32_t)));
+        stream.put('?');
+        stream.flush();
+        REQUIRE(stream.good());
+    }
+
+    CHECK_THROWS_AS((zidanedb::Index{file.idx_path(), 4}), zidanedb::InvalidIndexError);
+
+    {
+        zidanedb::Database recovered{file.path(), 4};
+        CHECK(recovered.get("player") == "Zidane");
+        CHECK(recovered.get("club") == "Real Madrid");
+        CHECK_FALSE(has_index_staging_directory(file.idx_path()));
+    }
+
+    CHECK(read_file_bytes(file.path()) == original_database);
+    const zidanedb::Database reopened{file.path(), 4};
+    CHECK(reopened.get("player") == "Zidane");
+    CHECK(reopened.get("club") == "Real Madrid");
 }
 
 TEST_CASE("an empty index without a database file can be reopened before the first write",
@@ -1031,4 +1074,80 @@ TEST_CASE("a header-only database rebuilds to an empty index",
     const zidanedb::Database reopened{file.path(), 4};
     CHECK_FALSE(reopened.get("missing").has_value());
     CHECK(reopened.get_index_stats().non_empty_buckets == 0);
+}
+
+TEST_CASE("a stale dirty index is rebuilt when the database is reopened",
+          "[database][recovery][metadata][regression]") {
+    TemporaryDirectory directory{"zidanedb-stale-dirty-index"};
+    const auto database_path = directory.path() / "stale-index.zdb";
+    auto index_path = database_path;
+    index_path += ".idx";
+    const auto stale_index_path = directory.path() / "stale-index.snapshot";
+
+    {
+        zidanedb::Database database{database_path, 4};
+        database.put("first", "already indexed");
+
+        // Capture a valid but dirty index before the second log record exists.
+        std::filesystem::copy_file(index_path, stale_index_path);
+        database.put("second", "missing from snapshot");
+    }
+    const auto complete_database = read_file_bytes(database_path);
+
+    std::filesystem::copy_file(stale_index_path, index_path,
+                               std::filesystem::copy_options::overwrite_existing);
+    {
+        const zidanedb::Index stale_index{index_path, 4};
+        REQUIRE_FALSE(stale_index.index_clean());
+        REQUIRE(stale_index.find("first").has_value());
+        REQUIRE_FALSE(stale_index.find("second").has_value());
+    }
+
+    {
+        zidanedb::Database recovered{database_path, 4};
+        CHECK(recovered.get("first") == "already indexed");
+        CHECK(recovered.get("second") == "missing from snapshot");
+        CHECK_FALSE(has_index_staging_directory(index_path));
+    }
+
+    CHECK(read_file_bytes(database_path) == complete_database);
+    const zidanedb::Index recovered_index{index_path, 4};
+    CHECK(recovered_index.index_clean());
+    CHECK(recovered_index.indexed_up_to_offset() == std::filesystem::file_size(database_path));
+}
+
+TEST_CASE("close is idempotent and public operations reject a closed database",
+          "[database][lifecycle][regression]") {
+    TemporaryDatabaseFile file{"explicit-close.zdb"};
+    zidanedb::Database database{file.path(), 4};
+    database.put("player", "Zidane");
+
+    REQUIRE_NOTHROW(database.close());
+    CHECK_NOTHROW(database.close());
+
+    CHECK_THROWS_AS(database.get("player"), std::logic_error);
+    CHECK_THROWS_AS(database.put("club", "Real Madrid"), std::logic_error);
+    CHECK_THROWS_AS(database.erase("player"), std::logic_error);
+    CHECK_THROWS_AS(database.get_index_stats(), std::logic_error);
+    CHECK_THROWS_AS(database.index_metadata_clean(), std::logic_error);
+    CHECK_THROWS_AS(database.scan_records(), std::logic_error);
+    CHECK_THROWS_AS(database.recover_records(), std::logic_error);
+    CHECK_THROWS_AS(database.rebuild_index(), std::logic_error);
+}
+
+TEST_CASE("the destructor suppresses a failure while marking the index clean",
+          "[database][lifecycle][regression]") {
+    TemporaryDatabaseFile file{"destructor-close-failure.zdb"};
+    {
+        zidanedb::Database database{file.path(), 4};
+        database.put("player", "Zidane");
+
+        // close() will be unable to reopen this path to update the clean flag.
+        REQUIRE(std::filesystem::remove(file.idx_path()));
+    }
+
+    // Reaching here proves that the noexcept destructor did not terminate the
+    // process. A later open can reconstruct the missing index from the log.
+    zidanedb::Database recovered{file.path(), 4};
+    CHECK(recovered.get("player") == "Zidane");
 }
