@@ -32,6 +32,7 @@ add_library(zidanedb
     src/constants.h
     src/record.h
     src/record.cpp
+    src/failpoints.h
 )
 
 target_link_libraries(zidanedb PRIVATE crc32c)
@@ -89,6 +90,7 @@ add_executable(matrix
     apps/matrix/perf_overwrite.cpp
     apps/matrix/utils.cpp
     apps/matrix/hash_collision.cpp
+    apps/matrix/crash_tests.cpp
 )
 
 target_link_libraries(matrix

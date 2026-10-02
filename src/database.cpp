@@ -1,5 +1,6 @@
 #include "zidanedb/database.h"
 #include "constants.h"
+#include "failpoints.h"
 #include "index.h"
 #include "record.h"
 #include "utils.h"
@@ -92,10 +93,12 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
             } catch (const InvalidIndexError&) {
                 // A structurally invalid index is disposable: the data log is
                 // the source of truth and can produce a replacement.
+                std::cout << "Index file has some problem, rebuilding index...\n";
                 rebuild_index_impl(0, num_index_buckets);
                 index_rebuilt = true;
             }
         } else {
+            std::cout << "Index file does not exist, rebuilding index...\n";
             rebuild_index_impl(0, num_index_buckets);
             index_rebuilt = true;
         }
@@ -105,6 +108,7 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
             // - Trigger basic recovery when the Index metadata is not clean.
             // - Check for incomplete tail in the db file, then truncate if required.
             // - Rebuild index.
+            std::cout << "Database might be corrupted, recovering...\n";
             recover_records();
         }
     }
@@ -185,6 +189,8 @@ void Database::put(const std::string& key, const std::string& val) {
         throw std::runtime_error("Value size exceeds max allowed value size");
     }
 
+    failpoint("before_db_append");
+
     Record record{RecordType::Put, key, val};
     std::ofstream file;
     std::uint64_t db_start_offset;
@@ -213,10 +219,17 @@ void Database::put(const std::string& key, const std::string& val) {
         throw std::runtime_error{"Could not write database file: " + db_path_.string()};
     }
 
+    failpoint("after_db_append");
+
     // Last write wins: update the index only after flushing the record.
     // If this update fails, the appended record may remain unindexed.
     index_->set(key, db_start_offset);
+
+    failpoint("before_update_indexed_up_to_offset");
+
     index_->set_indexed_up_to_offset(db_end_offset);
+
+    failpoint("clean_db_put");
 }
 
 bool Database::erase(const std::string& key) {
