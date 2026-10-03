@@ -35,6 +35,9 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
         expected.emplace("player", "bellingham");
     }
 
+    const std::optional<std::string> expected_player =
+        failpoint == "before_db_append" ? std::nullopt : std::optional<std::string>{"bellingham"};
+
     // initialize a database
     {
         zidanedb::Database database{path};
@@ -59,6 +62,8 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
     args.push_back("player");
     args.push_back("bellingham");
     args.push_back(nullptr); // The array MUST be null-terminated
+
+    bool reached_failpoint = false;
 
     pid_t pid = fork();
 
@@ -99,14 +104,24 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
                 int stop_sig = WSTOPSIG(status);
                 std::cout << "Zidane process stopped by signal: " << stop_sig << std::endl;
 
-                if (stop_sig == SIGSTOP || stop_sig == SIGTSTP) {
+                if (stop_sig != SIGSTOP) {
+                    std::cout << "Zidane process is not stopped by SIGSTOP" << stop_sig
+                              << std::endl;
+                    return 1;
+                } else {
                     std::cout << "Zidane process was stopped. Sending SIGKILL to terminate it..."
                               << std::endl;
                     kill(pid, SIGKILL);
 
                     // Harvest the child's final status after killing it
                     waitpid(pid, &status, 0);
+                    if (!WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL) {
+                        std::cout << "Zidane process was not killed properly by SIGKILL"
+                                  << std::endl;
+                        return 1;
+                    }
                     std::cout << "Zidane process has been successfully killed." << std::endl;
+                    reached_failpoint = true;
                     break;
                 }
             }
@@ -117,6 +132,11 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
                 break;
             }
         }
+    }
+
+    if (!reached_failpoint) {
+        std::cout << "Zidane process did not reach failpoint\n" << std::endl;
+        return 1;
     }
 
     // Reopening the database and check
@@ -133,6 +153,14 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
             if (*actual_value != expected_value) {
                 std::cerr << "Incorrect value for: " << key << '\n';
                 return 1;
+            }
+        }
+
+        if (database.get("player") != expected_player) {
+            if (expected_player) {
+                std::cerr << "Key player should exist" << '\n';
+            } else {
+                std::cerr << "Key player should not exist" << '\n';
             }
         }
     }

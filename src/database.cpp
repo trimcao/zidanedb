@@ -93,12 +93,10 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
             } catch (const InvalidIndexError&) {
                 // A structurally invalid index is disposable: the data log is
                 // the source of truth and can produce a replacement.
-                std::cout << "Index file has some problem, rebuilding index...\n";
                 rebuild_index_impl(0, num_index_buckets);
                 index_rebuilt = true;
             }
         } else {
-            std::cout << "Index file does not exist, rebuilding index...\n";
             rebuild_index_impl(0, num_index_buckets);
             index_rebuilt = true;
         }
@@ -108,7 +106,6 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
             // - Trigger basic recovery when the Index metadata is not clean.
             // - Check for incomplete tail in the db file, then truncate if required.
             // - Rebuild index.
-            std::cout << "Database might be corrupted, recovering...\n";
             recover_records();
         }
     }
