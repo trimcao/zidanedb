@@ -43,8 +43,10 @@ int main(int argc, char** argv) {
         app.add_subcommand("crash-test", "Crash at deterministic points in the database process");
     crash_test->add_option("failpoint", failpoint, "Failpoint to trigger")
         ->required()
-        ->check(CLI::IsMember({"before_db_append", "after_db_append",
-                               "before_update_indexed_up_to_offset", "clean_db_put"}));
+        ->check(CLI::IsMember(
+            {"before_db_append", "after_db_append", "before_update_indexed_up_to_offset",
+             "after_update_indexed_up_to_offset", " clean_db_close", "after_modify_existing_entry",
+             "before_update_bucket_head", "after_update_bucket_head", "before_set_index_clean"}));
 #endif
 
     app.require_subcommand(1, 1);

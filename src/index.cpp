@@ -1,5 +1,6 @@
 #include "index.h"
 #include "constants.h"
+#include "failpoints.h"
 #include "utils.h"
 #include "zidanedb/index_stats.h"
 #include <cstdint>
@@ -139,6 +140,7 @@ void Index::set(const std::string& key, std::uint64_t db_offset) {
                 throw std::runtime_error{"seek failed"};
             }
             utils::write_uint64(file, db_offset);
+            ZIDANEDB_FAILPOINT("after_modify_existing_entry");
         } else {
             // Append the new entry and link it to the previous head.
             next_entry_offset = offsets.chain_offset;
@@ -154,12 +156,16 @@ void Index::set(const std::string& key, std::uint64_t db_offset) {
             file.flush();
             file.clear();
 
+            ZIDANEDB_FAILPOINT("before_update_bucket_head");
+
             // Point the bucket at the new head only after flushing the entry.
             file.seekp(offsets.bucket_offset);
             if (!file) {
                 throw std::runtime_error{"seek failed"};
             }
             utils::write_uint64(file, offsets.chain_offset);
+
+            ZIDANEDB_FAILPOINT("after_update_bucket_head");
         }
         file.flush();
 

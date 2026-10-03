@@ -1,7 +1,9 @@
 #include "matrix.h"
+#include "utils.h"
 #include "zidanedb/database.h"
 #include <filesystem>
 #include <iostream>
+#include <random>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -19,14 +21,12 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
     - Kill the child process
     - Reopen the db and see how it recovers
     */
-    std::string db_file_name = "matrix-crash-test.zdb";
-    std::string index_file_name = "matrix-crash-test.zdb.idx";
 
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / db_file_name;
-    const std::filesystem::path idx_path = std::filesystem::temp_directory_path() / index_file_name;
+    // create unique directory
+    matrix::tests::detail::TemporaryDirectory workspace;
 
-    std::filesystem::remove(path);
-    std::filesystem::remove(idx_path);
+    const auto path = workspace.path() / "database.zdb";
+    const auto idx_path = workspace.path() / "database.zdb.idx";
 
     // expected map
     std::unordered_map<std::string, std::string> expected;
@@ -173,9 +173,6 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
             return 1;
         }
     }
-
-    std::filesystem::remove(path);
-    std::filesystem::remove(idx_path);
 
     std::cout << "PASS: database recovered successfully from the crash point\n";
 

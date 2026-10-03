@@ -1,5 +1,6 @@
 #include "zidanedb/database.h"
 #include "constants.h"
+#include "failpoints.h"
 #include "index.h"
 #include "record.h"
 #include "utils.h"
@@ -16,13 +17,6 @@
 #include <string>
 #include <system_error>
 #include <utility>
-
-#ifdef ZIDANEDB_ENABLE_FAILPOINTS
-#include "failpoints.h"
-#define ZIDANEDB_FAILPOINT(name) ::zidanedb::testing::failpoint(name)
-#else
-#define ZIDANEDB_FAILPOINT(name) ((void)0)
-#endif
 
 namespace {
 
@@ -141,11 +135,15 @@ void Database::close() {
         throw std::runtime_error{"Cannot close database: index is not caught up"};
     }
 
+    ZIDANEDB_FAILPOINT("before_set_index_clean");
+
     index_->set_index_clean(true);
     // release the in-memory index object
     index_.reset();
 
     closed_ = true;
+
+    ZIDANEDB_FAILPOINT("clean_db_close");
 }
 
 std::optional<std::string> Database::get(const std::string& key) const {
@@ -232,7 +230,7 @@ void Database::put(const std::string& key, const std::string& val) {
 
     index_->set_indexed_up_to_offset(db_end_offset);
 
-    ZIDANEDB_FAILPOINT("clean_db_put");
+    ZIDANEDB_FAILPOINT("after_update_indexed_up_to_offset");
 }
 
 bool Database::erase(const std::string& key) {
