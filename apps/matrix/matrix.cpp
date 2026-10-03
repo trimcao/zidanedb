@@ -37,6 +37,7 @@ int main(int argc, char** argv) {
     hash_collision->add_option("-b,--buckets", hash_collision_bucket_count, "Number of buckets")
         ->check(CLI::PositiveNumber);
 
+#ifdef ZIDANEDB_CRASH_TESTS_AVAILABLE
     std::string failpoint;
     auto* crash_test =
         app.add_subcommand("crash-test", "Crash at deterministic points in the database process");
@@ -44,6 +45,7 @@ int main(int argc, char** argv) {
         ->required()
         ->check(CLI::IsMember({"before_db_append", "after_db_append",
                                "before_update_indexed_up_to_offset", "clean_db_put"}));
+#endif
 
     app.require_subcommand(1, 1);
 
@@ -75,9 +77,11 @@ int main(int argc, char** argv) {
                                                      hash_collision_bucket_count);
         }
 
+#ifdef ZIDANEDB_CRASH_TESTS_AVAILABLE
         if (*crash_test) {
             return matrix::tests::run_crash_test(argv[0], failpoint);
         }
+#endif
     } catch (const std::exception& error) {
         std::cerr << "matrix: " << error.what() << '\n';
         return 1;

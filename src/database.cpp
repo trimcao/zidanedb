@@ -1,6 +1,5 @@
 #include "zidanedb/database.h"
 #include "constants.h"
-#include "failpoints.h"
 #include "index.h"
 #include "record.h"
 #include "utils.h"
@@ -17,6 +16,13 @@
 #include <string>
 #include <system_error>
 #include <utility>
+
+#ifdef ZIDANEDB_ENABLE_FAILPOINTS
+#include "failpoints.h"
+#define ZIDANEDB_FAILPOINT(name) ::zidanedb::testing::failpoint(name)
+#else
+#define ZIDANEDB_FAILPOINT(name) ((void)0)
+#endif
 
 namespace {
 
@@ -186,7 +192,7 @@ void Database::put(const std::string& key, const std::string& val) {
         throw std::runtime_error("Value size exceeds max allowed value size");
     }
 
-    failpoint("before_db_append");
+    ZIDANEDB_FAILPOINT("before_db_append");
 
     Record record{RecordType::Put, key, val};
     std::ofstream file;
@@ -216,17 +222,17 @@ void Database::put(const std::string& key, const std::string& val) {
         throw std::runtime_error{"Could not write database file: " + db_path_.string()};
     }
 
-    failpoint("after_db_append");
+    ZIDANEDB_FAILPOINT("after_db_append");
 
     // Last write wins: update the index only after flushing the record.
     // If this update fails, the appended record may remain unindexed.
     index_->set(key, db_start_offset);
 
-    failpoint("before_update_indexed_up_to_offset");
+    ZIDANEDB_FAILPOINT("before_update_indexed_up_to_offset");
 
     index_->set_indexed_up_to_offset(db_end_offset);
 
-    failpoint("clean_db_put");
+    ZIDANEDB_FAILPOINT("clean_db_put");
 }
 
 bool Database::erase(const std::string& key) {
@@ -355,7 +361,7 @@ ScanResult Database::scan_records(std::uint64_t start_offset) {
         record_start = record_end;
     }
 
-    ScanStatus scan_status;
+    ScanStatus scan_status{};
     switch (read_status) {
     case RecordReadStatus::ChecksumMismatch:
         scan_status = ScanStatus::ChecksumMismatch;

@@ -1,6 +1,5 @@
 #include "index.h"
 #include "constants.h"
-#include "failpoints.h"
 #include "utils.h"
 #include "zidanedb/index_stats.h"
 #include <cstdint>

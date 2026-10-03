@@ -49,7 +49,7 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
     std::filesystem::path parent_bin = std::filesystem::absolute(binary_path);
     std::filesystem::path parent_dir = parent_bin.parent_path();
 
-    std::filesystem::path child_bin = parent_dir / "zidane";
+    std::filesystem::path child_bin = parent_dir / "zidane_crash_worker";
 
     // Convert to a C-style string for exec
     std::string binary_str = child_bin.string();
@@ -111,10 +111,18 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
                 } else {
                     std::cout << "Zidane process was stopped. Sending SIGKILL to terminate it..."
                               << std::endl;
-                    kill(pid, SIGKILL);
+                    if (kill(pid, SIGKILL) != 0) {
+                        std::cout << "error: kill\n";
+                        return 1;
+                    }
 
                     // Harvest the child's final status after killing it
-                    waitpid(pid, &status, 0);
+                    const auto wait_result = waitpid(pid, &status, 0);
+                    if (wait_result != pid) {
+                        std::cerr << "error: waitpid\n";
+                        return 1;
+                    }
+
                     if (!WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL) {
                         std::cout << "Zidane process was not killed properly by SIGKILL"
                                   << std::endl;
@@ -162,6 +170,7 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
             } else {
                 std::cerr << "Key player should not exist" << '\n';
             }
+            return 1;
         }
     }
 

@@ -8,20 +8,9 @@ project(
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Dependencies are checked into vendor/ so configuring a fresh build tree does
-# not require network access.
-set(CRC32C_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(CRC32C_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-set(CRC32C_USE_GLOG OFF CACHE BOOL "" FORCE)
-set(CRC32C_INSTALL OFF CACHE BOOL "" FORCE)
+include(CTest)
 
-# Compatibility with this dependency's older CMake policy version.
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-
-add_subdirectory(vendor/crc32c EXCLUDE_FROM_ALL)
-add_subdirectory(vendor/CLI11 EXCLUDE_FROM_ALL)
-
-add_library(zidanedb
+set(ZIDANEDB_SOURCES
     src/database.cpp
     include/zidanedb/database.h
     include/zidanedb/index_stats.h
@@ -35,42 +24,83 @@ add_library(zidanedb
     src/failpoints.h
 )
 
-target_link_libraries(zidanedb PRIVATE crc32c)
+# Dependencies are checked into vendor/ so configuring a fresh build tree does
+# not require network access.
+set(CRC32C_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CRC32C_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(CRC32C_USE_GLOG OFF CACHE BOOL "" FORCE)
+set(CRC32C_INSTALL OFF CACHE BOOL "" FORCE)
 
+# Compatibility with this dependency's older CMake policy version.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
-target_include_directories(zidanedb
-    PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-)
+add_subdirectory(vendor/crc32c EXCLUDE_FROM_ALL)
+add_subdirectory(vendor/CLI11 EXCLUDE_FROM_ALL)
 
-target_compile_features(zidanedb
-    PUBLIC
-        cxx_std_20
-)
+function(add_zidanedb_library target_name)
+    add_library(${target_name}
+        ${ZIDANEDB_SOURCES}
+    )
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(zidanedb PRIVATE
-        -Wall
-        -Wextra
-        -Wpedantic
+    target_link_libraries(${target_name}
+        PRIVATE crc32c
+    )
+
+    target_include_directories(${target_name}
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+
+    target_compile_features(${target_name}
+        PUBLIC cxx_std_20
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(${target_name}
+            PRIVATE
+                -Wall
+                -Wextra
+                -Wpedantic
+        )
+    endif()
+endfunction()
+
+add_zidanedb_library(zidanedb)
+
+if(BUILD_TESTING)
+    add_zidanedb_library(zidanedb_with_failpoints)
+    target_compile_definitions(zidanedb_with_failpoints
+        PRIVATE ZIDANEDB_ENABLE_FAILPOINTS
     )
 endif()
 
-add_library(zidane_cli
+set(ZIDANE_CLI_SOURCES
     apps/zidane/commands.cpp
     apps/zidane/commands.h
 )
 
-target_include_directories(zidane_cli
-    PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/apps/zidane"
-)
+function(add_zidane_cli_library target_name database_target)
+    add_library(${target_name}
+        ${ZIDANE_CLI_SOURCES}
+    )
 
-target_link_libraries(zidane_cli
-    PUBLIC zidanedb
-)
+    target_include_directories(${target_name}
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/apps/zidane"
+    )
+
+    target_link_libraries(${target_name}
+        PUBLIC ${database_target}
+    )
+endfunction()
+
+add_zidane_cli_library(zidane_cli zidanedb)
+
+if(BUILD_TESTING)
+    add_zidane_cli_library(zidane_cli_with_failpoints zidanedb_with_failpoints)
+endif()
 
 add_executable(zidane
     apps/zidane/zidane.cpp
@@ -90,8 +120,16 @@ add_executable(matrix
     apps/matrix/perf_overwrite.cpp
     apps/matrix/utils.cpp
     apps/matrix/hash_collision.cpp
-    apps/matrix/crash_tests.cpp
 )
+
+if(BUILD_TESTING)
+    target_sources(matrix
+        PRIVATE apps/matrix/crash_tests.cpp
+    )
+    target_compile_definitions(matrix
+        PRIVATE ZIDANEDB_CRASH_TESTS_AVAILABLE
+    )
+endif()
 
 target_link_libraries(matrix
     PRIVATE
@@ -99,7 +137,18 @@ target_link_libraries(matrix
         CLI11::CLI11
 )
 
-include(CTest)
+if(BUILD_TESTING)
+    add_executable(zidane_crash_worker
+        apps/zidane/zidane.cpp
+    )
+
+    target_link_libraries(
+        zidane_crash_worker
+        PRIVATE
+            zidane_cli_with_failpoints
+            CLI11::CLI11
+    )
+endif()
 
 if(BUILD_TESTING)
     add_subdirectory(vendor/Catch2 EXCLUDE_FROM_ALL)
