@@ -1,7 +1,7 @@
 #include "matrix.h"
 #include "utils.h"
 #include "zidanedb/database.h"
-#include <cerrno>
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <signal.h>
@@ -21,6 +21,8 @@ int run_crash_test(std::string& failpoint) {
     - Kill the child process
     - Reopen the db and see how it recovers
     */
+
+    using namespace std::chrono_literals;
 
     // create unique directory
     matrix::utils::TemporaryDirectory workspace;
@@ -91,7 +93,19 @@ int run_crash_test(std::string& failpoint) {
 
         // Use WUNTRACED to monitor if the child gets stopped (e.g., SIGSTOP)
         while (true) {
-            if (!child.wait_for_state(status)) {
+            const auto outcome = child.wait_for_state(status, 5s);
+            switch (outcome) {
+            case utils::WaitOutcome::state_changed:
+                break;
+
+            case utils::WaitOutcome::timed_out:
+                std::cerr << "Timed out waiting for Zidane crash worker\n";
+                if (!child.kill_and_reap(status)) {
+                    std::cerr << "Could not kill and reap Zidane crash worker\n";
+                }
+                return 1;
+
+            case utils::WaitOutcome::error:
                 std::cerr << "waitpid failed\n";
                 return 1;
             }

@@ -1,6 +1,7 @@
 #ifndef MATRIX_UTILS_H
 #define MATRIX_UTILS_H
 
+#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <random>
@@ -27,6 +28,12 @@ class TemporaryDirectory {
     std::filesystem::path path_;
 };
 
+enum class WaitOutcome {
+    state_changed,
+    timed_out,
+    error,
+};
+
 class ChildProcess {
   public:
     explicit ChildProcess(pid_t pid);
@@ -36,9 +43,8 @@ class ChildProcess {
     ChildProcess(const ChildProcess&) = delete;
     ChildProcess& operator=(const ChildProcess&) = delete;
 
-    bool wait_for_state(int& status);
+    WaitOutcome wait_for_state(int& status, std::chrono::milliseconds timeout);
     bool kill_and_reap(int& status);
-    void mark_reaped() noexcept;
 
   private:
     pid_t pid_;

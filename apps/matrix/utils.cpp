@@ -1,12 +1,13 @@
 #include "utils.h"
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
-#include <iostream>
 #include <signal.h>
 #include <stdexcept>
 #include <string_view>
 #include <sys/wait.h>
+#include <thread>
 
 namespace matrix::utils {
 
@@ -92,8 +93,6 @@ bool ChildProcess::kill_and_reap(int& status) {
     return true;
 }
 
-void ChildProcess::mark_reaped() noexcept { reaped_ = true; }
-
 void ChildProcess::cleanup() noexcept {
     if (reaped_ || pid_ <= 0) {
         return;
@@ -109,27 +108,45 @@ void ChildProcess::cleanup() noexcept {
     reaped_ = true;
 }
 
-bool ChildProcess::wait_for_state(int& status) {
+WaitOutcome ChildProcess::wait_for_state(int& status, std::chrono::milliseconds timeout) {
     if (reaped_) {
-        return false;
+        return WaitOutcome::error;
     }
 
-    pid_t result;
-    do {
-        result = ::waitpid(pid_, &status, WUNTRACED);
-    } while (result == -1 && errno == EINTR);
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
 
-    // When waiting for one specific child:
-    // result == pid should be true.
-    if (result != pid_) {
-        return false;
+    while (true) {
+        const pid_t result = ::waitpid(pid_, &status, WUNTRACED | WNOHANG);
+
+        // When waiting for one specific child:
+        // result == pid should be true.
+        if (result == pid_) {
+            if (WIFEXITED(status) || WIFSIGNALED(status)) {
+                reaped_ = true;
+            }
+
+            return WaitOutcome::state_changed;
+        }
+
+        if (result == -1) {
+            if (errno == EINTR) {
+                // continue if being interrupted
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    return WaitOutcome::timed_out;
+                }
+                continue;
+            }
+
+            return WaitOutcome::error;
+        }
+
+        // result == 0 means the child has no reportable state change
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return WaitOutcome::timed_out;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
-
-    if (WIFEXITED(status) || WIFSIGNALED(status)) {
-        reaped_ = true;
-    }
-
-    return true;
 }
 
 } // namespace matrix::utils
