@@ -44,6 +44,9 @@ int run_crash_test(std::string& failpoint) {
     {
         zidanedb::Database database{path};
         database.put("team", "madrid");
+        if (failpoint == "after_modify_existing_entry") {
+            database.put("player", "benzema");
+        }
     }
 
     const std::filesystem::path child_bin{ZIDANEDB_CRASH_WORKER_PATH};

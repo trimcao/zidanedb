@@ -156,6 +156,48 @@ if(BUILD_TESTING)
 
     add_dependencies(matrix zidane_crash_worker)
 
+    # register Matrix crash tests with CTest
+    set(ZIDANEDB_MATRIX_CRASH_FAILPOINTS
+        before_db_append
+        after_db_append
+        before_update_indexed_up_to_offset
+        after_update_indexed_up_to_offset
+        before_update_bucket_head
+        after_update_bucket_head
+        before_set_index_clean
+        clean_db_close
+        after_modify_existing_entry
+    )
+
+    foreach(failpoint IN LISTS ZIDANEDB_MATRIX_CRASH_FAILPOINTS)
+        set(test_name "matrix.crash.${failpoint}")
+
+        add_test(
+            NAME "${test_name}"
+            COMMAND matrix crash-test "${failpoint}"
+        )
+
+        set_tests_properties(
+            "${test_name}"
+            PROPERTIES
+                TIMEOUT 15
+                LABELS "matrix;recovery;crash"
+        )
+    endforeach()
+
+    # basic Matrix correctness test
+    add_test(
+        NAME matrix.basic
+        COMMAND matrix basic
+    )
+
+    set_tests_properties(
+        matrix.basic
+        PROPERTIES
+            TIMEOUT 30
+            LABELS "matrix;correctness"
+    )
+
 endif()
 
 if(BUILD_TESTING)

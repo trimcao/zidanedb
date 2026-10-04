@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
         ->required()
         ->check(CLI::IsMember(
             {"before_db_append", "after_db_append", "before_update_indexed_up_to_offset",
-             "after_update_indexed_up_to_offset", " clean_db_close", "after_modify_existing_entry",
+             "after_update_indexed_up_to_offset", "clean_db_close", "after_modify_existing_entry",
              "before_update_bucket_head", "after_update_bucket_head", "before_set_index_clean"}));
 #endif
 
