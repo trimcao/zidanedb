@@ -148,6 +148,14 @@ if(BUILD_TESTING)
             zidane_cli_with_failpoints
             CLI11::CLI11
     )
+
+    target_compile_definitions(matrix
+        PRIVATE
+            ZIDANEDB_CRASH_WORKER_PATH="$<TARGET_FILE:zidane_crash_worker>"
+    )
+
+    add_dependencies(matrix zidane_crash_worker)
+
 endif()
 
 if(BUILD_TESTING)

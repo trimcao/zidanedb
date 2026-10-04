@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
 
 #ifdef ZIDANEDB_CRASH_TESTS_AVAILABLE
         if (*crash_test) {
-            return matrix::tests::run_crash_test(argv[0], failpoint);
+            return matrix::tests::run_crash_test(failpoint);
         }
 #endif
     } catch (const std::exception& error) {

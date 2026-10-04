@@ -11,7 +11,7 @@ int run_perf_large_values(std::size_t pair_count, std::size_t value_size);
 int run_perf_overwrite(std::size_t pair_count, std::size_t overwrite_times);
 int run_hash_collision(std::size_t pair_count, std::size_t bucket_count);
 
-int run_crash_test(const char* binary_path, std::string& failpoint);
+int run_crash_test(std::string& failpoint);
 
 } // namespace matrix::tests
 

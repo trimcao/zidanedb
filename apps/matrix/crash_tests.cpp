@@ -12,7 +12,7 @@
 
 namespace matrix::tests {
 
-int run_crash_test(const char* binary_path, std::string& failpoint) {
+int run_crash_test(std::string& failpoint) {
     /*
     Plan:
     - Create a child process
@@ -44,12 +44,7 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
         database.put("team", "madrid");
     }
 
-    // Parent figures out its own directory once, then passes it
-    // Converts "./parent" or "parent" into an absolute path based on launch context
-    std::filesystem::path parent_bin = std::filesystem::absolute(binary_path);
-    std::filesystem::path parent_dir = parent_bin.parent_path();
-
-    std::filesystem::path child_bin = parent_dir / "zidane_crash_worker";
+    const std::filesystem::path child_bin{ZIDANEDB_CRASH_WORKER_PATH};
 
     // Convert to a C-style string for exec
     std::string binary_str = child_bin.string();

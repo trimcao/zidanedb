@@ -29,3 +29,74 @@ Crash 5: During clean shutdown
 
 ## VM Hard Reset
 
+## Appendix: Making clangd Understand CMake Compile Definitions
+
+CMake can define the crash worker's complete path for the `matrix` target:
+
+```cmake
+target_compile_definitions(matrix
+    PRIVATE
+        ZIDANEDB_CRASH_WORKER_PATH="$<TARGET_FILE:zidane_crash_worker>"
+)
+```
+
+The real compiler then receives a definition similar to:
+
+```text
+-DZIDANEDB_CRASH_WORKER_PATH=\"/path/to/zidanedb/build/zidane_crash_worker\"
+```
+
+This is why the following C++ code can compile even when VS Code marks the name as unknown:
+
+```cpp
+const std::filesystem::path child_bin{ZIDANEDB_CRASH_WORKER_PATH};
+```
+
+`ZIDANEDB_CRASH_WORKER_PATH` is a compiler definition created by CMake, not a C++ variable
+declared in the source. The editor's language server must read the same compile command as the
+real compiler to understand it.
+
+ZidaneDB uses the VS Code clangd extension. Its compilation database is generated at
+`build/compile_commands.json`, but clangd does not normally search a sibling `build/` directory
+when analyzing files under `apps/`. Configure it by creating `.vscode/settings.json`:
+
+```json
+{
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/build"
+    ]
+}
+```
+
+Then run **clangd: Restart language server** from the VS Code command palette. If the diagnostic
+remains, run **Developer: Reload Window**.
+
+Configure CMake with compilation database generation enabled:
+
+```bash
+cmake -S . -B build \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -DBUILD_TESTING=ON
+```
+
+Reconfigure CMake after changing target definitions so that `compile_commands.json` stays current.
+Because the crash-test source is only included when `BUILD_TESTING` is enabled, the editor must use
+a build configured with `BUILD_TESTING=ON`.
+
+An alternative is to place a symbolic link in the repository root:
+
+```bash
+ln -s build/compile_commands.json compile_commands.json
+```
+
+Clangd searches the project root automatically. The explicit `--compile-commands-dir` setting is
+clearer, however, because it states which build directory the editor should use.
+
+Do not add a fake fallback definition directly to the C++ source:
+
+```cpp
+#define ZIDANEDB_CRASH_WORKER_PATH ...
+```
+
+That would hide the editor configuration problem and could make the editor and the real build use
+different worker paths.
