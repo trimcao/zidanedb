@@ -4,33 +4,12 @@
 #include <cstddef>
 #include <filesystem>
 #include <random>
-#include <stdexcept>
 #include <string>
-#include <system_error>
-#include <utility>
+#include <sys/types.h>
 
-namespace matrix::tests::detail {
+namespace matrix::utils {
 
 std::string random_string(std::mt19937_64& random_engine, std::size_t length);
-
-// class TemporaryDirectory {
-//   public:
-//     explicit TemporaryDirectory(std::filesystem::path path) : path_{std::move(path)} {
-//         if (!std::filesystem::create_directory(path_)) {
-//             throw std::runtime_error{"Could not create temporary directory"};
-//         }
-//     }
-
-//     ~TemporaryDirectory() noexcept {
-//         std::error_code ignored;
-//         std::filesystem::remove_all(path_, ignored);
-//     }
-
-//     const std::filesystem::path& path() const noexcept { return path_; }
-
-//   private:
-//     std::filesystem::path path_;
-// };
 
 class TemporaryDirectory {
   public:
@@ -48,8 +27,25 @@ class TemporaryDirectory {
     std::filesystem::path path_;
 };
 
-std::filesystem::path make_unique_temporary_location();
+class ChildProcess {
+  public:
+    explicit ChildProcess(pid_t pid);
 
-} // namespace matrix::tests::detail
+    ~ChildProcess() noexcept { cleanup(); }
+
+    ChildProcess(const ChildProcess&) = delete;
+    ChildProcess& operator=(const ChildProcess&) = delete;
+
+    bool wait_for_state(int& status);
+    bool kill_and_reap(int& status);
+    void mark_reaped() noexcept;
+
+  private:
+    pid_t pid_;
+    bool reaped_{false};
+    void cleanup() noexcept;
+};
+
+} // namespace matrix::utils
 
 #endif // MATRIX_UTILS_H

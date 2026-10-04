@@ -35,7 +35,7 @@ int run_perf_large_values(std::size_t pair_count, std::size_t value_size) {
     {
         for (std::size_t index = 0; index < pair_count; ++index) {
             std::string key = "large-key-" + std::to_string(index);
-            std::string value = detail::random_string(random_engine, value_size);
+            std::string value = utils::random_string(random_engine, value_size);
             records.emplace_back(std::move(key), std::move(value));
         }
     }

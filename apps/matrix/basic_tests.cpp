@@ -31,9 +31,9 @@ int run_basic() {
         for (std::size_t index = 0; index < pair_count; ++index) {
             // The loop index makes each generated key unique.
             std::string key = "key-" + std::to_string(index) + "-" +
-                              matrix::tests::detail::random_string(random_engine, 12);
+                              matrix::utils::random_string(random_engine, 12);
 
-            std::string value = matrix::tests::detail::random_string(random_engine, 32);
+            std::string value = matrix::utils::random_string(random_engine, 32);
 
             expected.emplace(key, value);
             database.put(key, value);

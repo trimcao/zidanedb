@@ -1,9 +1,9 @@
 #include "matrix.h"
 #include "utils.h"
 #include "zidanedb/database.h"
+#include <cerrno>
 #include <filesystem>
 #include <iostream>
-#include <random>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -23,7 +23,7 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
     */
 
     // create unique directory
-    matrix::tests::detail::TemporaryDirectory workspace;
+    matrix::utils::TemporaryDirectory workspace;
 
     const auto path = workspace.path() / "database.zdb";
     const auto idx_path = workspace.path() / "database.zdb.idx";
@@ -84,19 +84,21 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
             printf("%s ", args[i]);
         }
         printf("\n");
-        exit(EXIT_FAILURE);
+        // use _exit() to avoid flushing copies of the parent's buffered streams
+        _exit(EXIT_FAILURE);
     } else {
         // Parent Process
         std::cout << "Spawned Zidane process with PID: " << pid << std::endl;
+
+        utils::ChildProcess child{pid};
 
         int status;
 
         // Use WUNTRACED to monitor if the child gets stopped (e.g., SIGSTOP)
         while (true) {
-            pid_t result = waitpid(pid, &status, WUNTRACED);
-            if (result == -1) {
-                std::cerr << "waitpid failed" << std::endl;
-                break;
+            if (!child.wait_for_state(status)) {
+                std::cerr << "waitpid failed\n";
+                return 1;
             }
 
             // Check if the child process was stopped by a signal
@@ -111,23 +113,12 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
                 } else {
                     std::cout << "Zidane process was stopped. Sending SIGKILL to terminate it..."
                               << std::endl;
-                    if (kill(pid, SIGKILL) != 0) {
-                        std::cout << "error: kill\n";
+
+                    if (!child.kill_and_reap(status)) {
+                        std::cerr << "Could not kill and reap Zidane process\n";
                         return 1;
                     }
 
-                    // Harvest the child's final status after killing it
-                    const auto wait_result = waitpid(pid, &status, 0);
-                    if (wait_result != pid) {
-                        std::cerr << "error: waitpid\n";
-                        return 1;
-                    }
-
-                    if (!WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL) {
-                        std::cout << "Zidane process was not killed properly by SIGKILL"
-                                  << std::endl;
-                        return 1;
-                    }
                     std::cout << "Zidane process has been successfully killed." << std::endl;
                     reached_failpoint = true;
                     break;
@@ -143,7 +134,7 @@ int run_crash_test(const char* binary_path, std::string& failpoint) {
     }
 
     if (!reached_failpoint) {
-        std::cout << "Zidane process did not reach failpoint\n" << std::endl;
+        std::cerr << "Zidane process did not reach failpoint\n" << std::endl;
         return 1;
     }
 
