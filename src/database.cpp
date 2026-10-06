@@ -95,10 +95,16 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
                 // the source of truth and can produce a replacement.
                 rebuild_index_impl(0, num_index_buckets);
                 index_rebuilt = true;
+
+                open_recovery_report_.reason = RecoveryReason::invalid_index;
+                open_recovery_report_.action = RecoveryAction::full_index_rebuild;
             }
         } else {
             rebuild_index_impl(0, num_index_buckets);
             index_rebuilt = true;
+
+            open_recovery_report_.reason = RecoveryReason::missing_index;
+            open_recovery_report_.action = RecoveryAction::full_index_rebuild;
         }
 
         if (!index_rebuilt && !index_metadata_clean()) {
@@ -106,7 +112,11 @@ Database::Database(std::filesystem::path path, std::uint64_t num_index_buckets)
             // - Trigger basic recovery when the Index metadata is not clean.
             // - Check for incomplete tail in the db file, then truncate if required.
             // - Rebuild index.
-            recover_records();
+            auto truncated_bytes = recover_records();
+
+            open_recovery_report_.reason = RecoveryReason::unclean_index;
+            open_recovery_report_.action = RecoveryAction::full_index_rebuild;
+            open_recovery_report_.truncated_bytes = truncated_bytes;
         }
     }
 
@@ -386,8 +396,10 @@ ScanResult Database::scan_records(std::uint64_t start_offset) {
     return ScanResult{scan_status, last_valid_record_offset, failing_record_offset};
 }
 
-void Database::recover_records() {
+std::uint64_t Database::recover_records() {
     ensure_open();
+
+    std::uint64_t truncated_bytes = 0;
 
     // TODO: backup db file?
 
@@ -395,10 +407,9 @@ void Database::recover_records() {
 
     switch (scan_result.status) {
     case ScanStatus::Success:
-        // std::cout << "db file is healthy\n";
         break;
     case ScanStatus::Truncated:
-        std::cout << "truncating...\n";
+        truncated_bytes = std::filesystem::file_size(db_path_) - scan_result.failing_record_offset;
         std::filesystem::resize_file(db_path_, scan_result.failing_record_offset);
         break;
     default:
@@ -408,6 +419,8 @@ void Database::recover_records() {
     // TODO: rescan and verify?
 
     rebuild_index();
+
+    return truncated_bytes;
 }
 
 void Database::rebuild_index(std::uint64_t start_offset) {

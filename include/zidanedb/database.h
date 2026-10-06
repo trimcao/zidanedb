@@ -21,6 +21,24 @@ struct ScanResult {
 
 class Index;
 
+enum class RecoveryReason {
+    none,
+    missing_index,
+    invalid_index,
+    unclean_index, // Dirty flag or checkpoint mismatch
+};
+
+enum class RecoveryAction {
+    none,
+    full_index_rebuild,
+};
+
+struct RecoveryReport {
+    RecoveryReason reason{RecoveryReason::none};
+    RecoveryAction action{RecoveryAction::none};
+    std::uint64_t truncated_bytes{0};
+};
+
 class Database {
   private:
     std::filesystem::path db_path_;
@@ -29,6 +47,8 @@ class Database {
 
     std::string magic_;
     std::uint32_t version_;
+
+    RecoveryReport open_recovery_report_{};
 
     bool closed_{false};
     void ensure_open() const;
@@ -60,8 +80,10 @@ class Database {
 
     // scan all the data records, and find the longest valid prefix,
     ScanResult scan_records(std::uint64_t start_offset = 0);
-    void recover_records();
+    std::uint64_t recover_records();
     void rebuild_index(std::uint64_t start_offset = 0);
+
+    const RecoveryReport& open_recovery_report() const noexcept { return open_recovery_report_; }
 };
 
 } // namespace zidanedb

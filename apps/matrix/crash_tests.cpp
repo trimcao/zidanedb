@@ -154,6 +154,32 @@ int run_crash_test(std::string& failpoint) {
     {
         const zidanedb::Database database{path};
 
+        // Only clean_db_close runs after the index has been marked clean.
+        const bool expects_recovery = failpoint != "clean_db_close";
+        const auto expected_reason = expects_recovery ? zidanedb::RecoveryReason::unclean_index
+                                                      : zidanedb::RecoveryReason::none;
+        const auto expected_action = expects_recovery ? zidanedb::RecoveryAction::full_index_rebuild
+                                                      : zidanedb::RecoveryAction::none;
+        const auto& report = database.open_recovery_report();
+
+        if (report.reason != expected_reason) {
+            std::cerr << "Unexpected recovery reason for failpoint '" << failpoint << "': expected "
+                      << (expects_recovery ? "unclean_index" : "none") << '\n';
+            return 1;
+        }
+        if (report.action != expected_action) {
+            std::cerr << "Unexpected recovery action for failpoint '" << failpoint << "': expected "
+                      << (expects_recovery ? "full_index_rebuild" : "none") << '\n';
+            return 1;
+        }
+
+        // These failpoints never leave an incomplete data record.
+        if (report.truncated_bytes != 0) {
+            std::cerr << "Unexpected truncation for failpoint '" << failpoint << "': removed "
+                      << report.truncated_bytes << " bytes, expected 0\n";
+            return 1;
+        }
+
         for (const auto& [key, expected_value] : expected) {
             const auto actual_value = database.get(key);
 
@@ -177,7 +203,8 @@ int run_crash_test(std::string& failpoint) {
         }
     }
 
-    std::cout << "PASS: database recovered successfully from the crash point\n";
+    std::cout
+        << "PASS: crash scenario matched the expected recovery report and database contents\n";
 
     return 0;
 }
