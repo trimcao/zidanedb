@@ -4,6 +4,8 @@
 #include <array>
 #include <crc32c/crc32c.h>
 #include <cstdint>
+#include <iostream>
+#include <sstream>
 
 namespace {
 
@@ -82,6 +84,15 @@ RecordReadStatus read_record(std::istream& stream, Record& record) {
 }
 
 void write_record(std::ostream& stream, const Record& record) {
+    std::string bytes = serialize_record(record);
+    stream.write(bytes.data(), bytes.size());
+    if (!stream) {
+        throw std::runtime_error("Failed to write record");
+    }
+}
+
+std::string serialize_record(const Record& record) {
+    std::ostringstream stream(std::ios::out | std::ios::binary);
     std::uint32_t checksum = 0;
 
     utils::write_uint8(stream, static_cast<std::uint8_t>(record.type));
@@ -96,6 +107,8 @@ void write_record(std::ostream& stream, const Record& record) {
     checksum = extend_checksum_string(checksum, record.value);
 
     utils::write_uint32(stream, checksum);
+
+    return stream.str();
 }
 
 } // namespace zidanedb

@@ -26,6 +26,7 @@ enum class RecordReadStatus {
 
 RecordReadStatus read_record(std::istream& stream, Record& record);
 void write_record(std::ostream& stream, const Record& record);
+std::string serialize_record(const Record& record);
 
 } // namespace zidanedb
 
